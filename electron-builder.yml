@@ -1,0 +1,60 @@
+appId: com.cl.goof-off-app
+productName: Goof Off
+directories:
+  buildResources: build
+files:
+  - out/**
+  - resources/**
+  - package.json
+  - LICENSE
+  - '!**/.DS_Store'
+  - '!src/**'
+  - '!logs/**'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.idea,.vscode}/**'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+asarUnpack:
+  - resources/**
+win:
+  executableName: goof-off-app
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+nsis:
+  artifactName: Goof-Off-${version}-Setup.${ext}
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+portable:
+  artifactName: Goof-Off-${version}-Portable.${ext}
+mac:
+  artifactName: Goof-Off-${version}.${ext}
+  category: public.app-category.utilities
+  identity: '-'
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSCameraUsageDescription: Application requests access to the device's camera.
+    NSMicrophoneUsageDescription: Application requests access to the device's microphone.
+    NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
+    NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+  notarize: false
+dmg:
+  artifactName: Goof-Off-${version}.${ext}
+linux:
+  target:
+    - AppImage
+    - snap
+    - deb
+  maintainer: electronjs.org
+  category: Utility
+appImage:
+  artifactName: ${name}-${version}.${ext}
+npmRebuild: false

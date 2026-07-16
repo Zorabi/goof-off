@@ -1,0 +1,64 @@
+{
+  "name": "goof-off-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A lightweight stealth reader for macOS and Windows 11",
+  "main": "./out/main/index.js",
+  "author": "triWater",
+  "license": "GPL-3.0-only",
+  "homepage": "https://github.com/triWater-Chen/goof-off#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/triWater-Chen/goof-off.git"
+  },
+  "bugs": {
+    "url": "https://github.com/triWater-Chen/goof-off/issues"
+  },
+  "engines": {
+    "node": ">=22.12.0",
+    "npm": ">=10.9.3"
+  },
+  "packageManager": "npm@10.9.3",
+  "scripts": {
+    "format": "prettier --write .",
+    "lint": "eslint . --max-warnings=0",
+    "start": "electron-vite preview",
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "postinstall": "install-electron --no && electron-builder install-app-deps",
+    "build:unpack": "npm run build && electron-builder --dir",
+    "build:win": "npm run build && electron-builder --win --x64",
+    "build:mac": "npm run build && electron-builder --mac --arm64",
+    "build:linux": "npm run build && electron-builder --linux"
+  },
+  "dependencies": {
+    "@electron-toolkit/preload": "^3.0.2",
+    "@electron-toolkit/utils": "^4.0.0",
+    "@floating-ui/vue": "^1.1.11",
+    "electron-store": "^11.0.2",
+    "epubjs": "^0.3.93",
+    "iconv-lite": "^0.6.3",
+    "jschardet": "^3.1.4",
+    "pdfjs-dist": "~5.7.0"
+  },
+  "overrides": {
+    "epubjs": {
+      "@xmldom/xmldom": "^0.8.13"
+    }
+  },
+  "devDependencies": {
+    "@electron-toolkit/eslint-config": "^2.1.0",
+    "@electron-toolkit/eslint-config-prettier": "^3.0.0",
+    "@vitejs/plugin-vue": "^6.0.2",
+    "electron": "^42.1.0",
+    "electron-builder": "^26.15.6",
+    "electron-vite": "^5.0.0",
+    "eslint": "^9.39.1",
+    "eslint-plugin-vue": "^10.6.2",
+    "prettier": "^3.7.4",
+    "vite": "^7.3.4",
+    "vite-plugin-static-copy": "^4.1.0",
+    "vue": "^3.5.25",
+    "vue-eslint-parser": "^10.2.0"
+  }
+}

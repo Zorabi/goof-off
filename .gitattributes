@@ -1,0 +1,8 @@
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+tests/fixtures/** -text
+
+# Internal development material is omitted from public source archives.

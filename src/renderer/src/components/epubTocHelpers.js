@@ -1,0 +1,52 @@
+export function flattenToc(items, expanded, depth = 0) {
+  const result = []
+  const cappedDepth = Math.min(depth, 3)
+  for (const item of items) {
+    const hasChildren = !!(item.subitems && item.subitems.length > 0)
+    result.push({
+      id: item.id,
+      label: item.label?.trim() || '(无标题)',
+      href: item.href,
+      depth: cappedDepth,
+      hasChildren
+    })
+    if (hasChildren && expanded.has(item.id)) {
+      const children = flattenToc(item.subitems, expanded, depth + 1)
+      result.push(...children)
+    }
+  }
+  return result
+}
+
+export function findActiveNode(toc, canonicalHref, canonicalFn) {
+  if (!canonicalHref) return ''
+  const target = canonicalHref.split('#')[0]
+
+  function search(items) {
+    for (const item of items) {
+      const itemHref = canonicalFn ? canonicalFn(item.href) : item.href
+      const stripped = (itemHref || '').split('#')[0]
+      if (stripped === target) return item.id
+      if (item.subitems && item.subitems.length > 0) {
+        const found = search(item.subitems)
+        if (found) return found
+      }
+    }
+    return ''
+  }
+
+  return search(toc)
+}
+
+export function getParentChain(toc, targetId, chain = []) {
+  for (const item of toc) {
+    if (item.id === targetId) return chain
+    if (item.subitems && item.subitems.length > 0) {
+      const result = getParentChain(item.subitems, targetId, [...chain, item.id])
+      if (result.length > 0 || item.subitems.some((s) => s.id === targetId)) {
+        return result.length > 0 ? result : [...chain, item.id]
+      }
+    }
+  }
+  return []
+}
