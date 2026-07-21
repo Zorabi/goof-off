@@ -58,6 +58,9 @@ const configurableReaders = computed(() => [
     defaults: epubDefaults
   }
 ])
+const allReadersWritable = computed(() =>
+  configurableReaders.value.every((reader) => reader.section.writable.value)
+)
 
 const readonlyGroups = [
   {
@@ -131,6 +134,7 @@ function recordKey(reader, direction, value) {
 }
 
 function resetPageKeys() {
+  if (!allReadersWritable.value) return
   for (const reader of configurableReaders.value) {
     reader.section.savePatch({ pageKeys: { ...reader.defaults.pageKeys } })
   }
@@ -146,13 +150,16 @@ function resetPageKeys() {
       <div
         v-for="reader in configurableReaders"
         :key="reader.id"
+        :class="{ 'is-loading': reader.section.readiness.value === 'loading' }"
         :data-test="`${reader.id}-shortcut-section`"
+        :aria-busy="reader.section.readiness.value === 'loading' ? 'true' : undefined"
       >
         <div class="prefs-subhead">{{ reader.title }}</div>
         <div class="prefs-line" :data-test="`${reader.id}-shortcut-next`">
           <span class="prefs-line__label">下一页</span>
           <KeyCaptureButton
             :value="reader.section.prefs.value.pageKeys?.next || reader.defaults.pageKeys.next"
+            :disabled="!reader.section.writable.value"
             @record="recordKey(reader, 'next', $event)"
             @reject="rejectKey(reader.section, $event)"
           />
@@ -161,6 +168,7 @@ function resetPageKeys() {
           <span class="prefs-line__label">上一页</span>
           <KeyCaptureButton
             :value="reader.section.prefs.value.pageKeys?.prev || reader.defaults.pageKeys.prev"
+            :disabled="!reader.section.writable.value"
             @record="recordKey(reader, 'prev', $event)"
             @reject="rejectKey(reader.section, $event)"
           />
@@ -175,6 +183,7 @@ function resetPageKeys() {
           type="button"
           class="prefs-action"
           data-test="pagekeys-reset"
+          :disabled="!allReadersWritable"
           @click="resetPageKeys"
         >
           恢复默认

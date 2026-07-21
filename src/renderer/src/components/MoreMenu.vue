@@ -4,6 +4,7 @@ import { POPOVER_DESIRED_SIZE } from '../../../shared/popoverProtocol.js'
 import { useAppState } from '../composables/useAppState.js'
 import { injectChromeLockRegistry } from '../composables/useChromeLockRegistry.js'
 import { buildThemeSnapshot } from '../popoverAdapters.js'
+import { createPopoverRequestToken } from '../popoverRequestToken.js'
 import IconButton from './base/IconButton.vue'
 import Icon from './icons/Icon.vue'
 
@@ -38,7 +39,7 @@ const rootRef = ref(null)
 const triggerRef = ref(null)
 const panelRef = ref(null)
 const panelStyle = ref({})
-let requestSeq = 0
+let openGeneration = 0
 let activeRequestToken = null
 let removeChildAction = null
 let removeChildClose = null
@@ -128,7 +129,7 @@ async function openChildMenu() {
   const rect = rootRef.value?.getBoundingClientRect?.()
   if (!rect) return false
   const existingRequestToken = activeRequestToken
-  const requestToken = existingRequestToken || `more-menu:${++requestSeq}`
+  const requestToken = existingRequestToken || createPopoverRequestToken('more-menu')
   const payload = {
     id: 'more-menu',
     requestToken,
@@ -161,15 +162,28 @@ async function closeChildMenu() {
 
 async function refreshOpenChildMenu() {
   if (!open.value || !isWebReading() || !activeRequestToken) return
+  const generation = openGeneration
+  const requestToken = activeRequestToken
   await nextTick()
+  if (!open.value || generation !== openGeneration || activeRequestToken !== requestToken) {
+    return
+  }
   const updated = await openChildMenu()
-  if (!updated) close({ reason: 'open-failed' })
+  if (
+    !updated &&
+    open.value &&
+    generation === openGeneration &&
+    activeRequestToken === requestToken
+  ) {
+    close({ reason: 'open-failed' })
+  }
 }
 
 async function setOpen(value, options = {}) {
   const restoreFocus = options.restoreFocus ?? true
   const reason = options.reason || 'release'
   if (open.value === value) return
+  const generation = ++openGeneration
   open.value = value
   if (value) {
     registerTopChromeLock()
@@ -178,16 +192,19 @@ async function setOpen(value, options = {}) {
     window.addEventListener('resize', onResize)
     if (isWebReading()) {
       await nextTick()
+      if (!open.value || generation !== openGeneration) return
       const opened = await openChildMenu()
-      if (!opened) close({ reason: 'open-failed' })
+      if (!opened && open.value && generation === openGeneration) {
+        close({ reason: 'open-failed' })
+      }
       return
     }
     await nextTick()
   } else {
     releaseMenuLocks({ restoreFocus, reason })
-    await closeChildMenu()
     document.removeEventListener('pointerdown', onPointerDown)
     window.removeEventListener('resize', onResize)
+    await closeChildMenu()
   }
 }
 

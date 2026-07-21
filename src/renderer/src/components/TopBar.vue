@@ -393,12 +393,17 @@ function requestCloseWindow() {
   text-align: left;
 }
 .center.is-file-title-region {
+  /* 右侧四枚 24px 按钮、间距、外边距和 6px 呼吸区共预留 116px；
+   * 左右对称翻倍后，标题保持窗口几何居中且不会侵入控制区。 */
+  --file-title-control-reserve: 232px;
   justify-content: center;
 }
 .center.is-file-title-region .file-name {
   position: absolute;
   left: 50%;
-  width: min(46%, 360px);
+  width: 360px;
+  max-width: calc(100% - var(--file-title-control-reserve));
+  padding: 0 4px;
   transform: translateX(-50%);
   text-align: center;
 }

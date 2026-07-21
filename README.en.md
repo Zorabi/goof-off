@@ -2,214 +2,251 @@
 
 <div align="center">
 
-<img src="resources/icon.png" width="120" alt="Goof Off logo" />
+<img src="resources/icon.png" width="112" alt="Goof Off logo" />
 
 # Goof Off
 
-A stealth reader built for goofing off: TXT / EPUB / PDF reading plus an embedded browser — go transparent, hide, or vanish at any moment.
+**Keep web pages and local documents in a small window you can hide at any time.**
+
+Goof Off combines TXT, EPUB, and PDF reading with web browsing, plus background transparency, auto-hide, mouse click-through, and global boss keys.
 
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-macOS%20Apple%20Silicon%20%7C%20Windows%2011%20x64-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-42-47848F?logo=electron&logoColor=white)
 ![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white)
 
+[**Download and Install**](#download-and-install) · [**3-Minute Quick Start**](#3-minute-quick-start) · [**Move the Window**](#move-the-window) · [**Feature Overview**](#feature-overview) · [**Development and Contributing**](#development-and-contributing)
+
 </div>
 
-> **Note:** the app UI is currently Chinese-only. This document quotes the Chinese UI labels (with translations) so you can follow along.
+<p align="center">
+  <img src="./.github/assets/stealth.gif" width="900" alt="Goof Off switching from normal reading to a hidden background, faded UI, and auto-hide" />
+</p>
 
-## What is this
+<p align="center"><sub>Captured on macOS; Windows 11 provides the same core capabilities.</sub></p>
 
-Goof Off packs a local e-book reader (TXT / EPUB / PDF) and an embedded web browser into one unassuming little window, then wraps them in a full set of stealth features:
+## Why Goof Off
 
-- **Transparency** — the window background disappears entirely, leaving the text floating over your desktop, with adjustable fading;
-- **Evasion** — a global boss key hides/restores the window in one stroke and a kill switch quits instantly; when the mouse leaves the window, the content auto-fades and clicks pass through to whatever is underneath;
-- **Tracelessness** — it can stay out of the taskbar / Dock and live only in the system tray; history can be disabled or wiped.
+- **Disappear when needed**: Enable Hide Background to let content float directly over your desktop. You can also fade the UI and automatically hide the toolbars or reading content when the pointer leaves the window. While the reading content is hidden, mouse clicks pass through to the window underneath.
+- **One place for everything**: Open web pages, TXT, EPUB, and PDF files in the same window. Drag in a local file and the app detects its format automatically.
+- **Pick up where you left off**: Reading progress is stored separately for each file, along with your frequently used typography and reading-mode settings.
+- **Your data stays local**: No account is required, and nothing is synced to the cloud. Reading progress, preferences, and history remain on your machine, and history can be disabled or cleared at any time.
 
-Supports macOS (Apple Silicon) and Windows 11 x64. All data (reading progress, preferences, history) stays on your machine.
+## Download and Install
 
-## Features
+Download the latest release from [Releases](https://github.com/triWater-Chen/goof-off/releases):
 
-**Reading**
+| Platform            | File                                                 | Description                                     |
+| ------------------- | ---------------------------------------------------- | ----------------------------------------------- |
+| Windows 11 x64      | `Goof-Off-x.x.x-Setup.exe`                           | Installer; lets you choose the install location |
+| Windows 11 x64      | `Goof-Off-x.x.x-Portable.zip`                        | Extract fully, then run the executable in place |
+| macOS Apple Silicon | `Goof-Off-x.x.x-mac.dmg` or `Goof-Off-x.x.x-mac.zip` | For Macs with Apple silicon (M-series)          |
 
-- TXT: automatic chapter detection, full-text search, encoding auto-detection (UTF-8 / GBK / GB2312 / Big5, manually switchable), auto page-turn; large-file optimizations (worker-thread parsing above 256 KB, virtualized rendering above 1 MB)
-- EPUB: table of contents, search, scroll / paginated modes, font & typography settings (encrypted/DRM EPUB not supported)
-- PDF: outline, fit-width / fit-page / custom zoom (25%–400%), page jumping, Range-based streaming
-- Per-file progress and typography are remembered; the app can restore your last read on launch (optional)
+> Current release packages are not signed with a trusted developer certificate, so your system may display a security warning. On Windows, choose “More info → Run anyway” if SmartScreen appears. On macOS, if the developer cannot be verified, right-click the app in Finder and choose “Open.” Download the app only from this repository's Releases page.
 
-**Embedded browser**
+Extract the Windows portable archive completely and keep all files together. You can then run `goof-off-app.exe` directly without unpacking temporary files on every launch.
 
-- Smart address bar: URLs open directly, anything else goes to Bing search; suggestions from history and saved sites as you type
-- Quick-site cards: presets for WeRead, Bilibili, Xiaohongshu (RED) and Douyin; add / edit / remove / drag to reorder, one-click bookmarking of the current page
-- User-agent spoofing: iPhone by default (mobile pages are smaller and cleaner), or macOS / Windows / iPad, with per-site overrides
-- Plain view (strip backgrounds), hide media (images / video), hide scrollbars, page zoom, wheel-speed control
-- Web / file history (latest 100 entries each; can be disabled or cleared)
-
-**Stealth**
-
-- Hidden window background + UI fading (0–95%): only the content floats over the desktop
-- Global boss key: hide / restore (default `Ctrl+\` / `⌘+\`) and a kill switch that quits instantly (default `Shift+Ctrl+\` / `⇧⌘+\`); both re-bindable
-- Body auto-hide: content fades out the moment the mouse leaves the window, with mouse click-through on macOS / Windows 11
-- Auto-hiding toolbars that reappear via 44-px hot zones at the window's top/bottom edges
-- Optional taskbar / Dock hiding — only a tray icon remains; always-on-top pinning
-- Mini mode: a fixed 280×500 window (TXT / EPUB)
-
-## Install
-
-### Option 1: Download a prebuilt package (recommended)
-
-Grab the latest build for your platform from the [Releases](https://github.com/triWater-Chen/goof-off/releases) page:
-
-- **Windows 11 x64**: `Goof-Off-x.x.x-Setup.exe` (installer) or `Goof-Off-x.x.x-Portable.exe` (portable, no install needed)
-- **macOS (Apple Silicon)**: `Goof-Off-x.x.x.dmg` or `Goof-Off-x.x.x.zip`
-
-> The packages are not code-signed: on Windows, if SmartScreen pops up, click "More info → Run anyway"; on macOS, if it says the developer cannot be verified, right-click the app → Open.
-
-### Option 2: Build from source
+<details>
+<summary><strong>Run from source</strong></summary>
 
 Requires Node.js ≥ 22.12.0 and npm ≥ 10.9.3.
 
 ```bash
 git clone https://github.com/triWater-Chen/goof-off.git
 cd goof-off
-npm install     # downloads the Electron binary and rebuilds native deps
-npm run dev     # start in dev mode (HMR)
+npm install
+npm run dev
 ```
 
-Package distributables:
+</details>
 
-```bash
-npm run build:win      # Windows: NSIS installer + portable (x64), output in dist/
-npm run build:mac      # macOS: DMG + ZIP
-npm run build:unpack   # unpacked directory only, for local verification
-```
+## 3-Minute Quick Start
 
-> - If the Electron download is slow, set a mirror and rerun `npm install`: `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`.
-> - A `build:linux` script exists, but the platform policy (`src/shared/platformPolicy.js`) does not support Linux — it may not work.
+1. **Open a local file**: Drag a `.txt`, `.epub`, or `.pdf` file into the window, or click “点此打开” (Open File) at the bottom of the home page.
+2. **Start reading**: Depending on the file format, the bottom bar displays common tools such as contents, search, typography, auto page-turn, or zoom.
+3. **Browse the web**: Enter a URL or search terms at the top and press Enter, or open one of the quick sites on the home page.
+4. **Quit and resume later**: Quit normally and the app saves your current position by default. The next time it starts, it can return to the last web page or file you were reading.
 
-## Usage
+<p align="center">
+  <img src="./.github/assets/reading.gif" width="420" alt="Opening a TXT file from the home page and using the table of contents and full-text search" />
+</p>
 
-### Quick start
+<p align="center"><sub>TXT reading → chapter list → full-text search.</sub></p>
 
-1. Launch the app and you land on the home page.
-2. **Read a book**: drag a `.txt` / `.epub` / `.pdf` file into the window (one at a time), or click 「点此打开」 ("click to open") on the home page; keyboard: `Ctrl/⌘+O` (TXT), `Ctrl/⌘+Shift+O` (EPUB), `Ctrl/⌘+Alt+O` (PDF).
-3. **Browse**: click a quick-site card, or type a URL / search terms into the address bar and press Enter.
-4. On the next launch the app returns to your last page or reading position (disable via Preferences → 系统 (System) → 「启动时恢复上次阅读」 (restore last read on launch)).
+### Read your first book
 
-### Boss key: hide or kill in one stroke
+- **TXT**: The app detects chapters automatically and builds a table of contents. Search results appear in the bottom panel, with matching text highlighted in the document. If the text is garbled, open “排版” (Typography) and manually switch among UTF-8, GBK, GB2312, and Big5.
+- **EPUB**: In “排版” (Typography), switch between scrolling and paginated modes and adjust the font size, line height, and font family. EPUB also supports a table of contents and book-wide search.
+- **PDF**: Open “PDF 适配” (PDF Fit) to choose Fit Width, Fit Page, or a custom zoom from 25% to 400%. If the file contains a bookmark outline, the bottom bar also displays a contents button.
 
-| Action | Windows | macOS | Behavior |
+### Manage quick sites
+
+- The home page includes a set of quick sites. Click one to open it, or click “+ 添加” (+ Add) to add your own.
+- Right-click a site to edit or delete it, and drag it to reorder. While browsing, click the star in the address bar to save the current page to the home page.
+
+### Browse the web
+
+- Enter a full URL to open it directly. If you enter only `example.com`, the app adds the protocol automatically; all other input is sent to Bing Search.
+- The default user agent (UA) is iPhone, which gives common content sites a more compact mobile layout. If a page does not display correctly, switch the UA in Preferences or create an override for the current site.
+- After a page opens, the top bar shows only its current domain by default. Click the address bar to expand the full URL and enter a new one.
+- Click “隐藏媒体” (Hide Media) in the bottom bar to hide regular images, audio, and video, leaving a cleaner reading view.
+- After enabling “背景隐去” (Hide Background), click “网页素览” (Plain View) in the bottom bar when the controls are not merged to remove or soften page backgrounds. If the controls have been merged into “隐身阅读” (Stealth Reading) in Preferences, enabling that master switch also enables Plain View. Disabling Plain View refreshes the current page to restore its original styles.
+
+<p align="center">
+  <img src="./.github/assets/web.gif" width="900" alt="Opening a quick site, expanding the address bar, hiding media, and enabling Plain View" />
+</p>
+
+<p align="center"><sub>Web view: expand the address bar → hide media → enable Plain View.</sub></p>
+
+### Move the window
+
+Goof Off uses a frameless window on both macOS and Windows 11. Hold one of these drag regions and move the pointer:
+
+| Current state | Where to drag |
+| --- | --- |
+| **Normal window** | Use a blank part of the top bar that contains no button or input; the blank area at the upper left is the easiest target. Buttons, the address field, and document content remain available for normal interaction and cannot move the window. |
+| **Toolbars are auto-hidden** | Use the narrow transparent drag strip, about 6 px high, along the very top edge. You can also move the pointer over a top-bar button area or near the bottom edge of the top bar, then drag a blank part of the restored bar. |
+| **TXT / EPUB Mini Mode** | Drag the file name or another blank part of the visible top bar, or use either narrow transparent side rail between the top and bottom bars. |
+| **Body is hidden with click-through** | First move the pointer into a button area in the top or bottom bar to restore the body and disable click-through, then use one of the regions above. Blank drag regions do not restore the hidden body. |
+
+> Hide Background, Fade UI, and Always on Top do not change how window dragging works.
+
+## Core Workflow: Make the Window Disappear
+
+1. Open a file or web page, click “视觉控制” (Visual Controls) in the bottom bar, and enable **背景隐去 (Hide Background)**.
+2. To make the interface less conspicuous, enable **界面淡化 (Fade UI)** and adjust its intensity. TXT and EPUB text colors and reading backgrounds can be adjusted further in Preferences.
+3. Open the “更多” (More) menu in the top bar and enable **工具栏自动隐藏 (Auto-hide Toolbars)** or **主体自动隐藏 (Auto-hide Body)** as needed. Enabling Auto-hide Body also enables Auto-hide Toolbars; you can then disable Auto-hide Toolbars independently without affecting Auto-hide Body.
+4. When the pointer leaves the window, the enabled toolbars or body content automatically disappear. While the body is hidden, macOS and Windows 11 also enable mouse click-through, so clicks go directly to the window underneath.
+
+- **Bring back the toolbars**: Move the pointer over a button area in the top or bottom bar, or near the bottom edge of the top bar or the top edge of the bottom bar, to bring back the corresponding toolbar. Blank drag regions do not trigger it. Hidden toolbars keep their original layout space, so the document does not expand into those areas.
+- **Bring back the body**: Once the body is hidden, you must move the pointer into a button area in the top or bottom bar to restore the reading content. Moving only near the toolbar edges restores the toolbars but not the body; clicking the underlying window or pressing a boss key does not restore it either.
+- **Web media**: Any audio or video playing on a web page is paused before the page body is hidden. Playback does not resume automatically when the body returns.
+
+> Auto-hide works only in a normal web or file reading view when Hide Background is enabled. You can configure the options in advance on the home and history pages, while Mini Mode does not display them. Both switches last only for the current app session and are not written to long-term preferences. Disabling Hide Background temporarily suspends auto-hide without resetting the current session's choices; enabling it again restores those choices.
+
+### Boss keys
+
+Boss keys are system-wide global shortcuts, so they continue to work even while the window is hidden:
+
+| Action | Windows | macOS | Result |
 | --- | --- | --- | --- |
-| Hide / restore | `Ctrl + \` | `⌘ + \` | Hides when visible; restores when hidden; opens the main window if closed |
-| Kill switch (熔断) | `Shift + Ctrl + \` | `⇧ + ⌘ + \` | Quits the app immediately |
+| Hide / restore | `Ctrl + \` | `⌘ + \` | Hides the window instantly; press again to restore it |
+| Kill switch | `Shift + Ctrl + \` | `⇧ + ⌘ + \` | Quits the app immediately without confirmation |
 
-- These are system-wide global shortcuts and keep working while the window is hidden.
-- Rebind: Preferences → 快捷键 (Shortcuts) → 「老板键」 (boss key), click the key button and press a new combo (`Esc` cancels; combos already taken by the system are rejected and the old binding is kept).
-- Getting the window back: press the hide key again, or click the tray icon → 「恢复显示」 (restore).
+Rebind them under “偏好设置 → 快捷键 → 老板键” (Preferences → Shortcuts → Boss Keys). If you cannot find the window, you can also click the system tray icon and choose “恢复显示” (Restore).
 
-### Going full stealth
+> “Restore” in the table means showing the entire window after it was hidden with a boss key. It does not include reading content hidden by Auto-hide Body; move the pointer into a button area in the top or bottom bar to bring that content back.
 
-With a book or web page open, dial the stealth up step by step:
+### Mini Mode
 
-1. **Hide the background**: bottom toolbar → 「视觉控制」 (visual control) → switch on 「背景隐去」 (hide background) — the window background disappears and the content floats over the desktop; then enable 「界面淡化」 (fade UI) and drag the intensity slider (0–95%).
-   - One-switch version: Preferences → 视觉 (Visual) → check 「隐身阅读」 (stealth reading) to merge both toggles into one.
-2. **Auto-hide the toolbars**: top-right 「更多」 (more) menu → check 「工具栏自动隐藏」 (auto-hide toolbar; requires hide-background first). Bars collapse and reappear when the pointer enters the ~44-px hot zones at the window's top/bottom edges.
-3. **Auto-hide the body**: in the same menu, check 「主体自动隐藏」 (auto-hide body). The moment the mouse leaves the window, the content fades to invisible; on macOS and Windows 11, mouse **click-through** also kicks in — clicks land on whatever window is underneath, as if this one didn't exist. Move the mouse back into a hot zone or press a key to bring it back.
-4. **Drop out of the taskbar / Dock**: Preferences → 系统 (System) → uncheck 「在任务栏 / Dock 中显示」 (show in taskbar / Dock). From then on there are exactly two ways back: the boss key, or the tray icon.
-5. **Pin a tiny window** (optional): 「更多」 menu → 「窗口置顶」 (always on top); while reading TXT / EPUB, 「精简模式」 (mini mode) shrinks the app to a fixed 280×500 window (exit via the in-window menu → 「退出精简态」).
+While reading TXT or EPUB, choose “更多 → 精简模式” (More → Mini Mode) to shrink the window to 280 × 500 pixels and reduce visual distraction. Web pages and PDF files do not currently support Mini Mode.
 
-Two extra cleanup switches for web pages (inside the visual control panel; quick icons also appear in the bottom bar once transparency is on):
+<p align="center">
+  <img src="./.github/assets/mini.png" width="280" alt="Goof Off TXT Mini Mode" />
+</p>
 
-- 「网页素览」 (plain view): strips page background colors/images — pairs best with transparency;
-- 「隐藏媒体」 (hide media): hides images and videos, leaving text only.
+## Feature Overview
 
-### Reading controls
+| Content | Core capabilities |
+| --- | --- |
+| **Web** | Smart address bar, suggestions from history and favorites, iPhone / iPad / macOS / Windows user agents (UA), per-site overrides, Plain View (softened page backgrounds), hide images and video, hide scrollbars, page zoom, and wheel-speed control |
+| **TXT** | Hierarchical chapter list, full-text search, encoding detection and switching, font size / line height / font family, auto page-turn, background parsing for large files, and on-demand rendering |
+| **EPUB** | Table of contents, book-wide search, scrolling / paginated modes, font size / line height / font family, auto page-turn, and Mini Mode; encrypted EPUB files protected by DRM are not supported |
+| **PDF** | Embedded bookmark outline, Fit Width / Fit Page / 25%–400% zoom, page jumping, and on-demand streaming; full-text search and Mini Mode are not supported |
+| **History and restore** | Web and file history each keep the latest 100 entries and can be deleted individually, cleared, or disabled completely; each file stores its own progress, while commonly used typography and modes are saved as preferences |
 
-With a file open, the bottom toolbar offers 「目录 / 搜索 / 排版 / 自动翻页」 (contents / search / typography / auto page-turn; varies slightly by format); click the page indicator at the bottom to type a jump target.
+## Frequently Used Shortcuts
 
 | Keys | Action |
 | --- | --- |
-| `Space` / `Shift+Space` | Next / previous page (rebindable; Ctrl/⌘ combos not allowed) |
-| `PageDown` / `PageUp`, arrow keys | Page / scroll (in EPUB, `←` `→` switch chapters) |
-| `Ctrl/⌘ + F` | Full-text search (TXT / EPUB) |
-| `T` / `A` | TXT: toggle contents / auto page-turn |
-| `Home` / `End` | TXT: jump to start / end |
-| `Ctrl/⌘ + =` / `-` / `0` | PDF: zoom in / out / reset |
-| `Esc` | Collapse the topmost panel / menu / input |
+| `Ctrl/⌘ + O` | Open TXT |
+| `Ctrl/⌘ + Shift + O` | Open EPUB |
+| `Ctrl/⌘ + Alt + O` | Open PDF |
+| `Space` / `Shift + Space` | Next / previous page; configurable in Preferences |
+| `Ctrl/⌘ + F` | Full-text search in TXT / EPUB |
+| `Ctrl/⌘ + =` / `-` / `0` | Zoom in / out / reset PDF zoom |
+| `Ctrl/⌘ + ,` | Open Preferences |
+| `Esc` | Dismiss the active panel, menu, or input field one layer at a time |
 
-- **TXT**: chapters are auto-detected into a tree (individual chapters can be removed); if you see garbled text, switch the encoding manually in 「排版」 (typography) — it takes effect immediately.
-- **EPUB**: switch between scroll and paginated modes in 「排版」; encrypted (DRM) EPUB is not supported.
-- **PDF**: pick fit-width / fit-page / a custom ratio (25%–400%) in the 「PDF 适配」 (PDF fit) panel; custom background/text colors do not apply to PDF.
-- **Auto page-turn**: enable it in its panel and set an interval (5–180 s).
+<details>
+<summary><strong>What else can I change in Preferences?</strong></summary>
 
-### Browsing details
+- **Visual**: Auto / light / dark theme, Stealth Reading, UI fade intensity, and TXT / EPUB text colors and gradient backgrounds.
+- **Modes**: Web UA, compatibility mode, scrollbars, zoom, and site overrides, plus default typography and auto page-turn settings for TXT / EPUB / PDF.
+- **Shortcuts**: Boss keys, custom page-turn keys, and a reference for built-in shortcuts.
+- **System**: Startup restore, history, taskbar / Dock icon, diagnostic logs, cache cleanup, app reset, and configuration import / export.
 
-- Address bar rules: input starting with `http(s)://` opens directly; `example.com`-like input gets `https://` prepended; everything else is searched on Bing.
-- Pages open with an iPhone UA by default. If a site misbehaves: Preferences → 模式 (Modes) → 网页 (Web) — change 「用户代理」 (user agent) or enable 「站点覆盖」 (per-site override) for just that site; 「兼容模式」 (compatibility mode) forces the iPhone UA.
-- Bookmarks: click the star next to the address bar to turn the current page into a home-screen site card; right-click a card to edit / delete it, drag to reorder.
+</details>
 
-### History
+<details>
+<summary><strong>History and resume reading</strong></summary>
 
-Home → 「历史」 (history) card. Two tabs — web history and file history — grouped by today / yesterday / this week / earlier. Hover a row to delete it; 「清空」 (clear all) asks for a second confirmation. Opening a file entry whose file has been moved or deleted offers to remove that record. To leave no trace, disable recording in Preferences → 系统 (System).
+Click “历史” (History) on the home page to switch between web and file history, grouped by today, yesterday, this week, or earlier. If you open a local-file entry after the file has been moved or deleted, the app offers to remove the stale record. Deleting a history entry never deletes the original file. To stop keeping records, disable web history or file history under “偏好设置 → 系统” (Preferences → System).
 
-### Preferences
-
-「更多」 (more) menu → 「偏好设置」 (preferences), or `Ctrl/⌘ + ,`. Four tabs:
-
-| Tab | Contents |
-| --- | --- |
-| 视觉 (Visual) | App theme (auto / light / dark), stealth-reading toggle & fade intensity, TXT / EPUB reading background (text color, gradient background) |
-| 模式 (Modes) | Web (UA / compatibility / scrollbar / zoom, global & per-site), default typography and auto page-turn for TXT / EPUB / PDF |
-| 快捷键 (Shortcuts) | Boss keys, custom page-turn keys, built-in shortcut reference |
-| 系统 (System) | Startup restore, history toggles & clearing, taskbar / Dock icon, diagnostic logs, cache cleanup, app reset, config export / import |
+</details>
 
 ## FAQ
 
-- **The window is gone — how do I get it back?** Press the boss key (default `Ctrl+\` / `⌘+\`), or click the Goof Off tray icon → 「恢复显示」 (restore).
-- **A site won't load or renders badly?** Preferences → 模式 → 网页: try a different user agent or a per-site override; failing that, 「兼容模式」 (compatibility mode).
-- **TXT shows garbled text?** Reader → 「排版」 (typography) → 「编码」 (encoding): switch between UTF-8 / GBK / GB2312 / Big5.
+<details>
+<summary><strong>The window suddenly disappeared. How do I get it back?</strong></summary>
 
-## Project layout
+If the window is still present but the reading content or toolbars have disappeared, auto-hide is active. Move the pointer into a button area in the top or bottom bar; boss keys cannot restore auto-hidden content. If the entire window is gone, press the Hide / Restore boss key again (default `Ctrl+\` or `⌘+\`), or click the Goof Off icon in the system tray and choose “恢复显示” (Restore).
 
-```
-src/
-├── main/       # Main process: ~30 modules — windows, embedded browser, boss key & tray, transparency, per-format file services
-│   └── txtWorker.js    # Separate build entry: large TXT files parse in a worker thread
-├── preload/    # Four preloads: main window, preferences, popover, in-page dialog override
-├── renderer/   # Three separate Vue apps: main UI, preferences window, popover window
-└── shared/     # Pure modules shared by main / preload / renderer (platform policy, popover protocol, layout model, ...)
-```
+</details>
 
-- The embedded browser is a `WebContentsView` (not a `<webview>` tag); UA, CSS injection and the wheel-speed script are managed by the main process.
-- PDFs stream to pdf.js through a custom privileged protocol, `goof-off-pdf://`, with Range support.
-- All IPC channels are registered centrally in `src/main/ipcHandlers.js` (named `domain:action`); persistence uses electron-store with a full JSON schema in `src/main/store.js`.
-- Every macOS/Windows difference is encoded in `src/shared/platformPolicy.js` — feature code never branches on `process.platform` directly.
+<details>
+<summary><strong>A website will not open or looks wrong. What should I do?</strong></summary>
 
-## Development
+Go to “偏好设置 → 模式 → 网页” (Preferences → Modes → Web) and try another user agent (UA). You can also use a site override to change settings only for the current site. If the issue remains, try enabling compatibility mode.
+
+</details>
+
+<details>
+<summary><strong>TXT text is garbled. What should I do?</strong></summary>
+
+In the TXT bottom bar, open “排版 → 编码” (Typography → Encoding) and try UTF-8, GBK, GB2312, or Big5. The text is reparsed immediately after you switch encodings.
+
+</details>
+
+<details>
+<summary><strong>Does Goof Off support Intel Macs, Windows 10, or Linux?</strong></summary>
+
+Goof Off officially supports Macs with Apple silicon (M-series) and Windows 11 x64. Intel Macs, Windows 10, Windows ARM64, and Linux are not currently guaranteed to work.
+
+</details>
+
+## Development and Contributing
+
+<details>
+<summary><strong>Development commands and project structure</strong></summary>
 
 ```bash
-npm run dev      # dev mode (HMR)
-npm run build    # bundle main / preload / renderer into out/
-npm start        # preview the built bundle
-npm run lint     # ESLint (--max-warnings=0 — any warning fails)
-npm run format   # Prettier
+npm run dev      # Development mode (HMR)
+npm run build    # Build main / preload / renderer
+npm start        # Preview the build output
+npm run lint     # ESLint; any warning fails the command
 ```
 
-- The env var `GOOF_OFF_STEALTH_SPIKE=1` enables experimental stealth-probing paths (off by default; development only).
-- Structured diagnostic logs (JSONL) are written to `logs/` under the user-data directory; they can be disabled in Preferences → 系统.
+```text
+src/
+├── main/       # Electron main process, windows, browser, file services, and persistence
+├── preload/    # Secure bridges for the main window, Preferences, and popovers
+├── renderer/   # Vue apps for the main UI, Preferences, and popovers
+└── shared/     # Platform policies, layout models, and pure cross-process modules
+```
 
-## Contributing
+- The embedded browser uses `WebContentsView`, not `<webview>`.
+- PDF files are streamed to pdf.js with Range support through the custom `goof-off-pdf://` protocol.
+- Platform differences are centralized in `src/shared/platformPolicy.js`; the persistence schema is in `src/main/store.js`.
 
-Issues and PRs are welcome:
+</details>
 
-- For bug reports, include reproduction steps, your OS version (macOS / Windows 11), and diagnostic log snippets if relevant;
-- Make sure `npm run lint` and `npm run format` pass before submitting a PR;
-- The codebase is plain JavaScript (no TypeScript); user-facing strings are in Chinese;
-- New persisted keys need a schema entry in `src/main/store.js`; platform-specific behavior goes through policy fields in `src/shared/platformPolicy.js`.
+Issues and pull requests are welcome. When reporting a problem, include reproduction steps and your OS version. Before submitting a pull request, run `npm run lint` and `npm run build`. The project uses JavaScript and does not currently use TypeScript; the user interface is currently mainly in Chinese.
 
 ## License
 
-Released under the [GPL-3.0](./LICENSE) license.
+This project is released under the [GPL-3.0](./LICENSE) license.
 
 ## Acknowledgments
 
-- The development of this project benefited from the technical discussions and shared resources of the [LINUX DO](https://linux.do/) community.
+This project has benefited from the technical discussions and shared resources of the [LINUX DO](https://linux.do/) community.

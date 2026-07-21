@@ -1,4 +1,5 @@
 import { getMainWindow } from './windowManager.js'
+import * as preferencesWindow from './preferencesWindow.js'
 import { applyContentOpacity } from './webviewManager.js'
 import { resolveFramePolicy } from '../shared/framePolicy.js'
 
@@ -41,8 +42,9 @@ export function applyTransparency(effectiveOpacity) {
 }
 
 export function hideWindow() {
+  preferencesWindow.hideForOwnerHide()
   const win = getMainWindow()
-  if (!win) return
+  if (!win || win.isDestroyed?.()) return
   win.setOpacity(0)
   win.hide()
 }

@@ -3,6 +3,8 @@ import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { createWindow, getMainWindow } from './windowManager.js'
 import { registerIpcHandlers } from './ipcHandlers.js'
 import * as webviewManager from './webviewManager.js'
+import * as popoverWindowManager from './popoverWindowManager.js'
+import * as preferencesWindow from './preferencesWindow.js'
 import * as bossKeyService from './bossKeyService.js'
 import * as applicationMenu from './applicationMenu.js'
 import { setupDialogBridge } from './dialogBridgeSetup.js'
@@ -111,6 +113,8 @@ app.on('before-quit', () => {
   diagnosticLogger.info('app.before_quit', {}, 'main')
   pdfService.flushPending()
   pdfService.clearSessions()
+  popoverWindowManager.destroyPopover()
+  preferencesWindow.destroy()
   flushPending()
 })
 

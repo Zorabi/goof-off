@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { CHROME_HOT_ZONE_HEIGHT } from '../../../shared/chromeLayoutModel.js'
 import { POPOVER_DESIRED_SIZE } from '../../../shared/popoverProtocol.js'
 import { buildThemeSnapshot } from '../popoverAdapters.js'
+import { createPopoverRequestToken } from '../popoverRequestToken.js'
 
 const props = defineProps({
   controller: { type: Object, required: true },
@@ -20,7 +21,6 @@ const props = defineProps({
 const inputRef = ref(null)
 const listRef = ref(null)
 const listId = `address-suggestions-${Math.random().toString(36).slice(2)}`
-let requestSeq = 0
 let childItemSeq = 0
 let activeRequestToken = null
 let removeChildAction = null
@@ -178,7 +178,7 @@ async function openOrUpdateChildSuggestions() {
     return
   }
   const existingRequestToken = activeRequestToken
-  const requestToken = existingRequestToken || `address-suggestions:${++requestSeq}`
+  const requestToken = existingRequestToken || createPopoverRequestToken('address-suggestions')
   const snapshot = buildChildSnapshot()
   const desiredSizeDip = {
     width: Math.max(1, Math.ceil(triggerRectDip.width)),
@@ -216,11 +216,9 @@ async function closeChildSuggestions() {
     return
   }
   const requestToken = activeRequestToken
+  activeRequestToken = null
+  childSuggestionIds = new Map()
   await window.api?.popoverClose?.({ id: 'address-suggestions', requestToken })
-  if (activeRequestToken === requestToken) {
-    activeRequestToken = null
-    childSuggestionIds = new Map()
-  }
 }
 
 async function closeForHiddenHost() {

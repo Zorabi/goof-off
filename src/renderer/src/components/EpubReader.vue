@@ -37,6 +37,7 @@ const { epubPrefs } = useReaderPrefs()
 const isDark = ref(document.documentElement.classList.contains('dark'))
 let themeUnlisten = null
 const EPUB_THEME_NAME = 'goof-off'
+const FILE_DRAG_EVENT_TYPES = ['dragenter', 'dragover', 'dragleave', 'drop']
 
 const containerRef = ref(null)
 let rendition = null
@@ -50,6 +51,8 @@ const trackpadContentCleanups = new Map()
 let trackpadHookRegistered = false
 const contentPointerCleanups = new Map()
 let contentPointerHookRegistered = false
+const fileDragContentCleanups = new Map()
+let fileDragHookRegistered = false
 
 const autoTurnSec = computed(() => epubPrefs.value.autoTurnSec || 30)
 const autoTurn = useEpubAutoTurn({
@@ -565,6 +568,74 @@ function clearTrackpadGestureContentListeners() {
   trackpadHookRegistered = false
 }
 
+function isFileDragEvent(event) {
+  return Array.from(event?.dataTransfer?.types || []).includes('Files')
+}
+
+function forwardFileDragEventFromContents(sourceEvent) {
+  const host = containerRef.value
+  if (!host?.dispatchEvent || !isFileDragEvent(sourceEvent)) return
+
+  const EventCtor = host.ownerDocument?.defaultView?.Event || Event
+  const forwardedEvent = new EventCtor(sourceEvent.type, {
+    bubbles: true,
+    cancelable: true,
+    composed: true
+  })
+  Object.defineProperty(forwardedEvent, 'dataTransfer', {
+    configurable: true,
+    value: sourceEvent.dataTransfer
+  })
+
+  host.dispatchEvent(forwardedEvent)
+  if (forwardedEvent.defaultPrevented) {
+    sourceEvent.preventDefault()
+    sourceEvent.stopPropagation()
+  }
+}
+
+function attachFileDragToContents(contents) {
+  const doc = contents?.document
+  if (
+    !doc ||
+    typeof doc.addEventListener !== 'function' ||
+    typeof doc.removeEventListener !== 'function' ||
+    fileDragContentCleanups.has(doc)
+  ) {
+    return
+  }
+
+  for (const type of FILE_DRAG_EVENT_TYPES) {
+    doc.addEventListener(type, forwardFileDragEventFromContents, true)
+  }
+  fileDragContentCleanups.set(doc, () => {
+    for (const type of FILE_DRAG_EVENT_TYPES) {
+      doc.removeEventListener(type, forwardFileDragEventFromContents, true)
+    }
+  })
+}
+
+function attachFileDragToLoadedContents() {
+  const contents = typeof rendition?.getContents === 'function' ? rendition.getContents() : []
+  for (const content of contents) attachFileDragToContents(content)
+}
+
+function attachFileDragFromHook(contents) {
+  attachFileDragToContents(contents)
+}
+
+function ensureFileDragHook() {
+  if (fileDragHookRegistered || !rendition?.hooks?.content?.register) return
+  rendition.hooks.content.register(attachFileDragFromHook)
+  fileDragHookRegistered = true
+}
+
+function clearFileDragContentListeners() {
+  for (const cleanup of fileDragContentCleanups.values()) cleanup()
+  fileDragContentCleanups.clear()
+  fileDragHookRegistered = false
+}
+
 function attachContentPointerToContents(contents) {
   const doc = contents?.document
   if (
@@ -884,11 +955,14 @@ onMounted(async () => {
 
   ensureSearchHighlightHook()
   ensureTrackpadGestureHook()
+  ensureFileDragHook()
   ensureContentPointerHook()
   attachTrackpadGestureToLoadedContents()
+  attachFileDragToLoadedContents()
   attachContentPointerToLoadedContents()
   rendition.on('rendered', clearChapterTextNodeIndexCache)
   rendition.on('rendered', attachTrackpadGestureToLoadedContents)
+  rendition.on('rendered', attachFileDragToLoadedContents)
   rendition.on('rendered', attachContentPointerToLoadedContents)
   rendition.on('rendered', refreshSearchHighlights)
 
@@ -898,6 +972,7 @@ onMounted(async () => {
     if (!discardProgress && !shouldDiscardMaintenanceProgress()) flushSave()
     clearLoadedSearchHighlights()
     clearTrackpadGestureContentListeners()
+    clearFileDragContentListeners()
     clearContentPointerListeners()
     clearChapterTextNodeIndexCache()
     ctrl.resetSearchAnchor()
@@ -954,6 +1029,7 @@ onUnmounted(() => {
     resizeObserver = null
   }
   clearTrackpadGestureContentListeners()
+  clearFileDragContentListeners()
   clearContentPointerListeners()
   clearLoadedSearchHighlights()
   clearChapterTextNodeIndexCache()

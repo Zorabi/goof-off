@@ -1,72 +1,89 @@
 <script setup>
-import { ref } from 'vue'
-import ThemePrefsSection from './components/ThemePrefsSection.vue'
-import TransparencyPrefsSection from './components/TransparencyPrefsSection.vue'
-import FileVisualPrefsSection from './components/FileVisualPrefsSection.vue'
-import ModePrefsSection from './components/ModePrefsSection.vue'
-import ShortcutPrefsSection from './components/ShortcutPrefsSection.vue'
-import SystemPrefsSection from './components/SystemPrefsSection.vue'
-import { usePrefsContext } from './composables/usePrefsContext.js'
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import PreferencesSession from './PreferencesSession.vue'
+import { scheduleAfterNextPaint } from '../../src/scheduleAfterNextPaint.js'
 
-const topPages = [
-  { id: 'visual', label: '视觉' },
-  { id: 'mode', label: '模式' },
-  { id: 'shortcuts', label: '快捷键' },
-  { id: 'system', label: '系统' }
-]
+const sessionEpoch = ref(0)
+const sessionRef = ref(null)
+let lastCompletedGeneration = 0
+let pendingGeneration = null
+let unlisten = null
+let unlistenPrepareReveal = null
+let cancelPreparedReveal = null
+let pendingRevealGeneration = null
+let disposed = false
 
-const activePage = ref('mode')
-const { contentMode, fileKind, recommendedMode } = usePrefsContext()
-const isWindows = window.api?.platformPolicy?.family === 'windows'
-
-function closePreferences() {
-  window.api.closePreferences?.()
+function acknowledge(generation) {
+  try {
+    window.api.preferencesDeactivated(generation)
+    return true
+  } catch {
+    return false
+  }
 }
+
+async function deactivate(generation) {
+  if (disposed) return
+  if (!Number.isSafeInteger(generation) || generation <= 0) return
+  if (generation < lastCompletedGeneration) return
+  if (generation === lastCompletedGeneration) {
+    acknowledge(generation)
+    return
+  }
+  if (pendingGeneration !== null) return
+
+  pendingGeneration = generation
+  cancelPreparedReveal?.()
+  cancelPreparedReveal = null
+  pendingRevealGeneration = null
+  sessionEpoch.value += 1
+  await nextTick()
+
+  if (disposed || pendingGeneration !== generation) return
+
+  const sessionRoot = sessionRef.value?.$el
+  const activeElement = document.activeElement
+  if (activeElement && activeElement !== document.body && !sessionRoot?.contains(activeElement)) {
+    activeElement.blur?.()
+  }
+
+  lastCompletedGeneration = generation
+  pendingGeneration = null
+  acknowledge(generation)
+}
+
+function prepareReveal(generation) {
+  if (disposed) return
+  if (!Number.isSafeInteger(generation) || generation <= 0) return
+  cancelPreparedReveal?.()
+  pendingRevealGeneration = generation
+  cancelPreparedReveal = scheduleAfterNextPaint(() => {
+    cancelPreparedReveal = null
+    if (disposed || pendingRevealGeneration !== generation) return
+    pendingRevealGeneration = null
+    window.api.preferencesRevealReady(generation)
+  })
+}
+
+onMounted(() => {
+  disposed = false
+  unlisten = window.api.onPreferencesDeactivate(deactivate) || null
+  unlistenPrepareReveal = window.api.onPreferencesPrepareReveal(prepareReveal) || null
+})
+
+onBeforeUnmount(() => {
+  disposed = true
+  pendingGeneration = null
+  pendingRevealGeneration = null
+  cancelPreparedReveal?.()
+  cancelPreparedReveal = null
+  unlisten?.()
+  unlisten = null
+  unlistenPrepareReveal?.()
+  unlistenPrepareReveal = null
+})
 </script>
 
 <template>
-  <div class="prefs-shell" :class="{ 'is-windows': isWindows, dark: true }">
-    <header class="prefs-header">
-      <div class="prefs-title-row">
-        <div class="prefs-title">偏好设置</div>
-        <button
-          type="button"
-          class="prefs-close"
-          data-test="prefs-close"
-          aria-label="关闭偏好设置"
-          @click="closePreferences"
-        >
-          ×
-        </button>
-      </div>
-      <nav class="prefs-nav" aria-label="偏好设置分类">
-        <button
-          v-for="page in topPages"
-          :key="page.id"
-          type="button"
-          class="prefs-nav__item"
-          :class="{ active: activePage === page.id }"
-          :data-test="`top-page-${page.id}`"
-          @click="activePage = page.id"
-        >
-          {{ page.label }}
-        </button>
-      </nav>
-    </header>
-
-    <main class="prefs-scroll">
-      <template v-if="activePage === 'visual'">
-        <ThemePrefsSection />
-        <TransparencyPrefsSection />
-        <FileVisualPrefsSection :disabled="contentMode === 'file' && fileKind === 'pdf'" />
-      </template>
-      <ModePrefsSection
-        v-else-if="activePage === 'mode'"
-        :initial-mode="recommendedMode"
-        :content-mode="contentMode"
-      />
-      <ShortcutPrefsSection v-else-if="activePage === 'shortcuts'" />
-      <SystemPrefsSection v-else />
-    </main>
-  </div>
+  <PreferencesSession :key="sessionEpoch" ref="sessionRef" />
 </template>

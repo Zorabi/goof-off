@@ -29,10 +29,16 @@ const siteSnapshot = ref({ origin: null, override: null, effectivePrefs: null })
 const webRevision = ref(0)
 const siteRevision = ref(0)
 const status = ref({ kind: '', text: '', scope: '' })
+const readiness = ref('loading')
+const sourceDone = { web: false, site: false }
+const changeRevision = { web: 0, site: 0 }
+const writeGeneration = { web: 0, site: 0 }
 let unlistenWeb = null
 let unlistenSite = null
+let disposed = true
 
-const uaDisabled = computed(() => webPrefs.value.compat)
+const writable = computed(() => readiness.value === 'ready')
+const uaDisabled = computed(() => !writable.value || webPrefs.value.compat)
 const siteSupported = computed(
   () => props.contentMode === 'web' && Boolean(siteSnapshot.value.origin)
 )
@@ -54,61 +60,187 @@ function showError(text, scope) {
   status.value = { kind: 'error', text, scope }
 }
 
+function clearError(scope) {
+  if (status.value.scope === scope) status.value = { kind: '', text: '', scope: '' }
+}
+
+function completeSource(source) {
+  sourceDone[source] = true
+  if (readiness.value !== 'failed' && sourceDone.web && sourceDone.site) {
+    readiness.value = 'ready'
+  }
+}
+
+function failSection(error, scope) {
+  if (disposed) return
+  readiness.value = 'failed'
+  showError(error?.message || '读取网页偏好失败', scope)
+}
+
+function beginWrite(source) {
+  return {
+    generation: ++writeGeneration[source],
+    startedAtRevision: changeRevision[source]
+  }
+}
+
+function isCurrentWrite(source, write) {
+  return write.generation === writeGeneration[source]
+}
+
+function loadSource(source, get, startedAtRevision, apply, scope) {
+  let request
+  try {
+    request = get()
+  } catch (error) {
+    failSection(error, scope)
+    return
+  }
+  void Promise.resolve(request)
+    .then((next) => {
+      if (disposed) return
+      if (changeRevision[source] === startedAtRevision) apply(next)
+      completeSource(source)
+    })
+    .catch((error) => failSection(error, scope))
+}
+
 async function setGlobalPatch(patch) {
+  if (!writable.value || disposed) return
+  const write = beginWrite('web')
   try {
     const next = await window.api.setWebPrefs(patch)
-    applyWebPrefs(next)
+    if (disposed || !isCurrentWrite('web', write)) return
+    if (changeRevision.web === write.startedAtRevision) applyWebPrefs(next)
     status.value = { kind: '', text: '', scope: '' }
   } catch (err) {
-    showError(err?.message || '保存网页偏好失败', 'global')
+    if (!disposed && isCurrentWrite('web', write)) {
+      showError(err?.message || '保存网页偏好失败', 'global')
+    }
   }
 }
 
 async function enableSiteOverride() {
-  if (!siteSupported.value) return
-  const next = await window.api.setCurrentSiteWebPrefs({})
-  if (next?.ok === false) showError('当前页面不支持站点覆盖', 'site')
-  else applySiteSnapshot(next)
+  if (!writable.value || !siteSupported.value || disposed) return
+  const write = beginWrite('site')
+  try {
+    const next = await window.api.setCurrentSiteWebPrefs({})
+    if (disposed || !isCurrentWrite('site', write)) return
+    if (next?.ok === false) showError('当前页面不支持站点覆盖', 'site')
+    else {
+      if (changeRevision.site === write.startedAtRevision) applySiteSnapshot(next)
+      clearError('site')
+    }
+  } catch (error) {
+    if (!disposed && isCurrentWrite('site', write)) {
+      showError(error?.message || '保存站点偏好失败', 'site')
+    }
+  }
 }
 
 async function setSitePatch(patch) {
-  if (!siteSupported.value || !siteSnapshot.value.override) return
-  const next = await window.api.setCurrentSiteWebPrefs(patch)
-  if (next?.ok === false) showError('当前页面不支持站点覆盖', 'site')
-  else applySiteSnapshot(next)
+  if (!writable.value || !siteSupported.value || !siteSnapshot.value.override || disposed) return
+  const write = beginWrite('site')
+  try {
+    const next = await window.api.setCurrentSiteWebPrefs(patch)
+    if (disposed || !isCurrentWrite('site', write)) return
+    if (next?.ok === false) showError('当前页面不支持站点覆盖', 'site')
+    else {
+      if (changeRevision.site === write.startedAtRevision) applySiteSnapshot(next)
+      clearError('site')
+    }
+  } catch (error) {
+    if (!disposed && isCurrentWrite('site', write)) {
+      showError(error?.message || '保存站点偏好失败', 'site')
+    }
+  }
 }
 
 async function clearSiteOverride() {
-  if (!siteSupported.value) return
-  const next = await window.api.clearCurrentSiteWebPrefs()
-  if (next?.ok === false) showError('当前页面不支持站点覆盖', 'site')
-  else applySiteSnapshot(next)
+  if (!writable.value || !siteSupported.value || disposed) return
+  const write = beginWrite('site')
+  try {
+    const next = await window.api.clearCurrentSiteWebPrefs()
+    if (disposed || !isCurrentWrite('site', write)) return
+    if (next?.ok === false) showError('当前页面不支持站点覆盖', 'site')
+    else {
+      if (changeRevision.site === write.startedAtRevision) applySiteSnapshot(next)
+      clearError('site')
+    }
+  } catch (error) {
+    if (!disposed && isCurrentWrite('site', write)) {
+      showError(error?.message || '保存站点偏好失败', 'site')
+    }
+  }
 }
 
 function toggleSiteOverride(checked) {
+  if (!writable.value || disposed) return
   if (checked) enableSiteOverride()
   else clearSiteOverride()
 }
 
-onMounted(async () => {
+onMounted(() => {
+  disposed = false
+  const webStarted = changeRevision.web
+  const siteStarted = changeRevision.site
+  let listenerFailed = false
   try {
-    applyWebPrefs(await window.api.getWebPrefs())
-    applySiteSnapshot(await window.api.getCurrentSiteWebPrefs())
-    unlistenWeb = window.api.onWebPrefsChange?.(applyWebPrefs) || null
-    unlistenSite = window.api.onCurrentSiteWebPrefsChange?.(applySiteSnapshot) || null
-  } catch (err) {
-    showError(err?.message || '读取网页偏好失败', 'global')
+    unlistenWeb =
+      window.api.onWebPrefsChange?.((next) => {
+        if (disposed) return
+        changeRevision.web += 1
+        applyWebPrefs(next)
+      }) || null
+  } catch (error) {
+    unlistenWeb = null
+    failSection(error, 'global')
+    listenerFailed = true
   }
+  if (!listenerFailed) {
+    try {
+      unlistenSite =
+        window.api.onCurrentSiteWebPrefsChange?.((next) => {
+          if (disposed) return
+          changeRevision.site += 1
+          applySiteSnapshot(next)
+        }) || null
+    } catch (error) {
+      unlistenWeb?.()
+      unlistenWeb = null
+      unlistenSite = null
+      failSection(error, 'site')
+      listenerFailed = true
+    }
+  }
+  if (listenerFailed) {
+    unlistenWeb?.()
+    unlistenSite?.()
+    unlistenWeb = null
+    unlistenSite = null
+  }
+
+  loadSource('web', () => window.api.getWebPrefs(), webStarted, applyWebPrefs, 'global')
+  loadSource(
+    'site',
+    () => window.api.getCurrentSiteWebPrefs(),
+    siteStarted,
+    applySiteSnapshot,
+    'site'
+  )
 })
 
 onUnmounted(() => {
+  disposed = true
   unlistenWeb?.()
   unlistenSite?.()
+  unlistenWeb = null
+  unlistenSite = null
 })
 </script>
 
 <template>
-  <div>
+  <div data-test="web-section-root" :aria-busy="readiness === 'loading' ? 'true' : undefined">
     <section class="prefs-sect">
       <div class="prefs-secthead">网页全局</div>
       <div v-if="status.text && status.scope === 'global'" class="prefs-line__hint is-danger">
@@ -132,6 +264,7 @@ onUnmounted(() => {
         <input
           type="checkbox"
           :checked="webPrefs.compat"
+          :disabled="!writable"
           @change="setGlobalPatch({ compat: $event.target.checked })"
         />
       </label>
@@ -141,6 +274,7 @@ onUnmounted(() => {
         <input
           type="checkbox"
           :checked="webPrefs.hideScrollbar"
+          :disabled="!writable"
           @change="setGlobalPatch({ hideScrollbar: $event.target.checked })"
         />
       </label>
@@ -155,6 +289,7 @@ onUnmounted(() => {
           :scale="100"
           :sync-key="webRevision"
           suffix="%"
+          :disabled="!writable"
           data-test="web-zoom"
           @update:model-value="setGlobalPatch({ zoom: $event })"
         />
@@ -176,7 +311,7 @@ onUnmounted(() => {
           data-test="site-override"
           type="checkbox"
           :checked="Boolean(siteSnapshot.override)"
-          :disabled="!siteSupported"
+          :disabled="!writable || !siteSupported"
           @change="toggleSiteOverride($event.target.checked)"
         />
       </label>
@@ -186,7 +321,7 @@ onUnmounted(() => {
         <PrefsSegmented
           :options="uaOptions"
           :model-value="sitePrefs.ua"
-          :disabled="!siteSupported || !siteSnapshot.override || sitePrefs.compat"
+          :disabled="!writable || !siteSupported || !siteSnapshot.override || sitePrefs.compat"
           aria-label="站点用户代理"
           data-test="site-ua"
           @update:model-value="setSitePatch({ ua: $event })"
@@ -199,7 +334,7 @@ onUnmounted(() => {
           data-test="site-compat"
           type="checkbox"
           :checked="sitePrefs.compat"
-          :disabled="!siteSupported || !siteSnapshot.override"
+          :disabled="!writable || !siteSupported || !siteSnapshot.override"
           @change="setSitePatch({ compat: $event.target.checked })"
         />
       </label>
@@ -214,7 +349,7 @@ onUnmounted(() => {
           :scale="100"
           :sync-key="siteRevision"
           suffix="%"
-          :disabled="!siteSupported || !siteSnapshot.override"
+          :disabled="!writable || !siteSupported || !siteSnapshot.override"
           data-test="site-zoom"
           @update:model-value="setSitePatch({ zoom: $event })"
         />
@@ -225,7 +360,7 @@ onUnmounted(() => {
         <input
           type="checkbox"
           :checked="sitePrefs.hideScrollbar"
-          :disabled="!siteSupported || !siteSnapshot.override"
+          :disabled="!writable || !siteSupported || !siteSnapshot.override"
           @change="setSitePatch({ hideScrollbar: $event.target.checked })"
         />
       </label>

@@ -7,7 +7,12 @@ import {
 } from '../../../../shared/transparencyPrefs.js'
 
 const prefs = ref({ ...DEFAULT_TRANSPARENCY_PREFS })
+const readiness = ref('loading')
+const status = ref('')
 let unlisten = null
+let changeRevision = 0
+let writeGeneration = 0
+let disposed = true
 const LOG_DEBOUNCE_MS = 150
 const diagnosticTimers = new Map()
 
@@ -68,14 +73,19 @@ function flushPendingPrefsDiagnostics() {
 }
 
 async function setPatch(patch, { debounceDiagnostic = false } = {}) {
+  if (disposed || readiness.value !== 'ready') return null
+  const generation = ++writeGeneration
+  const startedAtRevision = changeRevision
   try {
     const next = await window.api.transparencyPrefsSet({ patch })
-    if (next) applyPrefs(next)
+    if (disposed || generation !== writeGeneration) return null
+    if (next && changeRevision === startedAtRevision) applyPrefs(next)
     const source = next || { ...prefs.value, ...patch }
     if (debounceDiagnostic) schedulePrefsDiagnostic(patch, source, true)
     else sendPrefsDiagnostic(patch, source, true)
     return next
   } catch (error) {
+    if (disposed || generation !== writeGeneration) return null
     if (debounceDiagnostic) schedulePrefsDiagnostic(patch, patch, false, error)
     else sendPrefsDiagnostic(patch, patch, false, error)
     return null
@@ -86,26 +96,65 @@ function percent(value) {
   return `${Math.round(value * 100)}%`
 }
 
-onMounted(async () => {
-  applyPrefs(await window.api.transparencyPrefsGet())
-  unlisten = window.api.onTransparencyPrefsChange?.(applyPrefs) || null
+onMounted(() => {
+  disposed = false
+  const startedAtRevision = changeRevision
+  try {
+    unlisten =
+      window.api.onTransparencyPrefsChange?.((next) => {
+        if (disposed) return
+        changeRevision += 1
+        applyPrefs(next)
+      }) || null
+  } catch (error) {
+    unlisten = null
+    readiness.value = 'failed'
+    status.value = error?.message || '读取失败'
+  }
+
+  let request
+  try {
+    request = window.api.transparencyPrefsGet()
+  } catch (error) {
+    readiness.value = 'failed'
+    status.value = error?.message || '读取失败'
+    return
+  }
+  void Promise.resolve(request)
+    .then((next) => {
+      if (disposed) return
+      if (changeRevision === startedAtRevision) applyPrefs(next)
+      if (readiness.value !== 'failed') {
+        readiness.value = 'ready'
+        status.value = ''
+      }
+    })
+    .catch((error) => {
+      if (disposed) return
+      readiness.value = 'failed'
+      status.value = error?.message || '读取失败'
+    })
 })
 
 onUnmounted(() => {
+  disposed = true
   flushPendingPrefsDiagnostics()
   unlisten?.()
+  unlisten = null
 })
 </script>
 
 <template>
-  <section class="prefs-sect">
+  <section class="prefs-sect" :aria-busy="readiness === 'loading' ? 'true' : undefined">
     <div class="prefs-secthead">透明</div>
+    <div v-if="status" class="prefs-line__hint is-danger">{{ status }}</div>
 
     <label class="prefs-line">
       <span class="prefs-line__label">隐身阅读</span>
       <input
         type="checkbox"
         :checked="prefs.merged"
+        :disabled="readiness !== 'ready'"
         @change="setPatch({ merged: $event.target.checked })"
       />
     </label>
@@ -121,6 +170,7 @@ onUnmounted(() => {
           step="0.01"
           :value="prefs.contentLevel"
           :style="{ '--fill-pct': `${(prefs.contentLevel / 0.95) * 100}%` }"
+          :disabled="readiness !== 'ready'"
           @input="
             setPatch({ contentLevel: Number($event.target.value) }, { debounceDiagnostic: true })
           "

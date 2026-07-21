@@ -105,6 +105,18 @@ const api = {
   preferencesExport: () => ipcRenderer.invoke('preferences:export'),
   preferencesImport: () => ipcRenderer.invoke('preferences:import'),
   preferencesResetDefaults: () => ipcRenderer.invoke('preferences:reset-defaults'),
+  onPreferencesDeactivate: (callback) => {
+    const handler = (_event, generation) => callback(generation)
+    ipcRenderer.on('preferences:deactivate', handler)
+    return () => ipcRenderer.removeListener('preferences:deactivate', handler)
+  },
+  preferencesDeactivated: (generation) => ipcRenderer.send('preferences:deactivated', generation),
+  onPreferencesPrepareReveal: (callback) => {
+    const handler = (_event, generation) => callback(generation)
+    ipcRenderer.on('preferences:prepare-reveal', handler)
+    return () => ipcRenderer.removeListener('preferences:prepare-reveal', handler)
+  },
+  preferencesRevealReady: (generation) => ipcRenderer.send('preferences:reveal-ready', generation),
   closePreferences: () => ipcRenderer.invoke('prefs:close'),
   fileVisualPrefsGet: () => ipcRenderer.invoke('file-visual-prefs:get'),
   fileVisualPrefsSet: (patch) => ipcRenderer.invoke('file-visual-prefs:set', patch),

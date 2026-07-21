@@ -20,12 +20,13 @@ const encodingOptions = [
   { value: 'GBK', label: 'GBK' },
   { value: 'GB2312', label: 'GB2312' }
 ]
-const { prefs, status, revision, apply, savePatch } = usePreferenceSection({
-  defaults,
-  get: window.api.txtGetPrefs,
-  set: window.api.txtSetPrefs,
-  listen: window.api.onTxtPrefsChange
-})
+const { prefs, status, readiness, writable, revision, isDisposed, apply, savePatch } =
+  usePreferenceSection({
+    defaults,
+    get: window.api.txtGetPrefs,
+    set: window.api.txtSetPrefs,
+    listen: window.api.onTxtPrefsChange
+  })
 
 function setNumber(field, value) {
   savePatch({ [field]: value })
@@ -36,8 +37,10 @@ function setEncoding(value) {
 }
 
 async function saveFontFamily(value) {
+  if (!writable.value || isDisposed()) return prefs.value
   try {
     const next = await window.api.txtSetPrefs({ fontFamily: value })
+    if (isDisposed()) return prefs.value
     apply(next)
     status.value = { kind: '', text: '' }
     logDiagnostic('reader.font_family_change', {
@@ -48,6 +51,7 @@ async function saveFontFamily(value) {
     })
     return next
   } catch (error) {
+    if (isDisposed()) return prefs.value
     status.value = { kind: 'error', text: error?.message || '保存失败' }
     logDiagnosticError('reader.font_family_change', error, {
       kind: 'txt',
@@ -61,7 +65,12 @@ async function saveFontFamily(value) {
 </script>
 
 <template>
-  <section class="prefs-sect" data-test="txt-section">
+  <section
+    class="prefs-sect"
+    :class="{ 'is-loading': readiness === 'loading' }"
+    data-test="txt-section"
+    :aria-busy="readiness === 'loading' ? 'true' : undefined"
+  >
     <div class="prefs-line">
       <span class="prefs-line__label">字号</span>
       <PrefsStepper
@@ -70,6 +79,7 @@ async function saveFontFamily(value) {
         :max="24"
         :step="1"
         :sync-key="revision"
+        :disabled="!writable"
         data-test="txt-font-size"
         @update:model-value="setNumber('fontSize', $event)"
       />
@@ -79,6 +89,7 @@ async function saveFontFamily(value) {
       <PrefsSelect
         :options="FONT_FAMILY_OPTIONS"
         :model-value="prefs.fontFamily || defaults.fontFamily"
+        :disabled="!writable"
         aria-label="TXT 字体"
         data-test="txt-font-family"
         @update:model-value="saveFontFamily"
@@ -92,6 +103,7 @@ async function saveFontFamily(value) {
         :max="2"
         :step="0.1"
         :sync-key="revision"
+        :disabled="!writable"
         data-test="txt-line-height"
         @update:model-value="setNumber('lineHeight', $event)"
       />
@@ -101,6 +113,7 @@ async function saveFontFamily(value) {
       <PrefsSelect
         :options="encodingOptions"
         :model-value="prefs.defaultEncoding || ''"
+        :disabled="!writable"
         aria-label="TXT 默认编码"
         data-test="txt-default-encoding"
         @update:model-value="setEncoding"
@@ -114,6 +127,7 @@ async function saveFontFamily(value) {
         :max="180"
         :step="1"
         :sync-key="revision"
+        :disabled="!writable"
         data-test="txt-auto-turn-sec"
         @update:model-value="setNumber('autoTurnSec', $event)"
       />

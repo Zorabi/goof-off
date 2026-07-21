@@ -59,6 +59,8 @@ function macPolicy() {
     defaultWebPrefs: { ua: 'iphone' },
     menu: { preferencesAccelerator: 'CmdOrCtrl+,' },
     window: {
+      keepAlivePanelsAfterMainClose: true,
+      maskTransparentPanelReveal: true,
       supportsVibrancy: true,
       supportsTrafficLights: false,
       supportsWindowButtonVisibility: false,
@@ -88,6 +90,8 @@ function windowsPolicy() {
     defaultWebPrefs: { ua: 'iphone' },
     menu: { preferencesAccelerator: 'CmdOrCtrl+,' },
     window: {
+      keepAlivePanelsAfterMainClose: false,
+      maskTransparentPanelReveal: true,
       supportsVibrancy: false,
       supportsTrafficLights: false,
       supportsWindowButtonVisibility: false,
@@ -101,7 +105,7 @@ function windowsPolicy() {
         bodyClickThroughReason: 'manual-pass-2026-07-14-win11'
       })
     },
-    packaging: { winTargets: ['nsis', 'portable'], winArch: ['x64'] }
+    packaging: { winTargets: ['nsis', 'zip'], winArch: ['x64'] }
   }
 }
 
@@ -115,6 +119,7 @@ function unsupportedPolicy(platform, family) {
     defaultWebPrefs: { ua: 'iphone' },
     window: {
       ...windowsPolicy().window,
+      maskTransparentPanelReveal: false,
       stealthAutoHide: stealthAutoHideCapabilities({
         bodyFade: false,
         bodyFadeReason: 'unsupported-platform',

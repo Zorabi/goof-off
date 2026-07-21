@@ -9,7 +9,12 @@ const MODES = [
 ]
 
 const prefs = ref({ mode: 'auto' })
+const readiness = ref('loading')
+const status = ref('')
 let unlisten = null
+let changeRevision = 0
+let writeGeneration = 0
+let disposed = true
 
 function applyPrefs(value) {
   if (value?.mode === 'light' || value?.mode === 'dark' || value?.mode === 'auto') {
@@ -18,33 +23,79 @@ function applyPrefs(value) {
 }
 
 async function setMode(mode) {
-  const previous = prefs.value
+  if (disposed || readiness.value !== 'ready') return
+  const generation = ++writeGeneration
+  const startedAtRevision = changeRevision
+  const previous = { ...prefs.value }
   try {
     const next = await window.api.themePrefsSet({ mode })
-    applyPrefs(next)
-  } catch {
-    prefs.value = previous
+    if (disposed || generation !== writeGeneration) return
+    if (changeRevision === startedAtRevision) applyPrefs(next)
+    status.value = ''
+  } catch (error) {
+    if (disposed || generation !== writeGeneration) return
+    if (changeRevision === startedAtRevision) prefs.value = previous
+    status.value = error?.message || '保存失败'
   }
 }
 
-onMounted(async () => {
-  applyPrefs(await window.api.themePrefsGet())
-  unlisten = window.api.onThemePrefsChange?.(applyPrefs) || null
+onMounted(() => {
+  disposed = false
+  const startedAtRevision = changeRevision
+  try {
+    unlisten =
+      window.api.onThemePrefsChange?.((next) => {
+        if (disposed) return
+        changeRevision += 1
+        applyPrefs(next)
+      }) || null
+  } catch (error) {
+    unlisten = null
+    readiness.value = 'failed'
+    status.value = error?.message || '读取失败'
+  }
+
+  let request
+  try {
+    request = window.api.themePrefsGet()
+  } catch (error) {
+    readiness.value = 'failed'
+    status.value = error?.message || '读取失败'
+    return
+  }
+  void Promise.resolve(request)
+    .then((next) => {
+      if (disposed) return
+      if (changeRevision === startedAtRevision) applyPrefs(next)
+      if (readiness.value !== 'failed') {
+        readiness.value = 'ready'
+        status.value = ''
+      }
+    })
+    .catch((error) => {
+      if (disposed) return
+      readiness.value = 'failed'
+      status.value = error?.message || '读取失败'
+    })
 })
 
 onUnmounted(() => {
+  disposed = true
   unlisten?.()
+  unlisten = null
 })
 </script>
 
 <template>
-  <section class="prefs-sect">
+  <section class="prefs-sect" :aria-busy="readiness === 'loading' ? 'true' : undefined">
     <div class="prefs-secthead">应用主题</div>
+    <div v-if="status" class="prefs-line__hint is-danger">{{ status }}</div>
     <div class="prefs-line">
       <span class="prefs-line__label">外观</span>
       <PrefsSegmented
         :options="MODES"
         :model-value="prefs.mode"
+        :disabled="readiness !== 'ready'"
         aria-label="应用主题"
         data-test="theme-mode"
         @update:model-value="setMode"

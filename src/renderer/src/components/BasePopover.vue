@@ -41,6 +41,7 @@ const modelValueRef = toRef(props, 'modelValue')
 const snapshotRef = toRef(props, 'snapshot')
 const appliedMaxHeight = ref(null)
 const isOverflowHostResolving = ref(false)
+const isOverflowHostResolved = ref(!props.desiredSize)
 let disposed = false
 let updateCounter = 0
 let overflowResolutionCounter = 0
@@ -79,17 +80,23 @@ const overflow = props.desiredSize
   : null
 const isForcedChildHost = computed(() => Boolean(overflow && props.forceChildHost))
 const renderInMainWindow = computed(
-  () => props.modelValue && !overflow?.isChildHostActive.value && !isForcedChildHost.value
+  () =>
+    props.modelValue &&
+    isOverflowHostResolved.value &&
+    !overflow?.isChildHostActive.value &&
+    !isForcedChildHost.value
 )
 
 async function resolveOverflowHost() {
   if (!overflow) return
   const currentCounter = ++overflowResolutionCounter
+  isOverflowHostResolved.value = false
   isOverflowHostResolving.value = true
   try {
     await overflow.recompute()
   } finally {
     if (!disposed && currentCounter === overflowResolutionCounter) {
+      isOverflowHostResolved.value = true
       isOverflowHostResolving.value = false
     }
   }
@@ -97,6 +104,7 @@ async function resolveOverflowHost() {
 
 function cancelOverflowHostResolution() {
   overflowResolutionCounter++
+  isOverflowHostResolved.value = !overflow
   isOverflowHostResolving.value = false
 }
 
@@ -181,24 +189,17 @@ watch(
 )
 
 watch(
-  () => props.modelValue,
-  async (isOpen) => {
+  [() => props.modelValue, isOverflowHostResolved],
+  async ([isOpen]) => {
     const currentCounter = ++updateCounter
 
-    if (isOpen && !overflow?.isChildHostActive.value && !isForcedChildHost.value) {
+    if (isOpen && renderInMainWindow.value) {
       const previousReservedOwner = getReservedPopoverId()
       reservationNotified = previousReservedOwner !== null
       setReservedPopoverId(props.popoverId)
       await nextTick()
       await nextTick()
-      if (
-        disposed ||
-        currentCounter !== updateCounter ||
-        !props.modelValue ||
-        overflow?.isChildHostActive.value ||
-        isForcedChildHost.value
-      )
-        return
+      if (disposed || currentCounter !== updateCounter || !renderInMainWindow.value) return
 
       const height = popoverPanelRef.value?.offsetHeight ?? 120
       reservationNotified = true

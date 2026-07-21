@@ -22,7 +22,7 @@ const enabled = computed(() => props.running || props.paused)
       :model-value="intervalSec"
       :min="5"
       :max="180"
-      :step="5"
+      :step="1"
       :format="(value) => `${value}s`"
       @update:model-value="emit('update:intervalSec', $event)"
     />

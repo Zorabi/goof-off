@@ -2,11 +2,14 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import VisualControlPanel from '../../src/components/VisualControlPanel.vue'
 import Icon from '../../src/components/icons/Icon.vue'
+import { scheduleAfterNextPaint } from '../../src/scheduleAfterNextPaint.js'
 
 const snapshot = ref(null)
 const rootRef = ref(null)
 const isWindows = window.popoverApi?.platformPolicy?.family === 'windows'
 let removeSnapshot = null
+let removePrepareReveal = null
+let cancelPreparedReveal = null
 let resizeObserver = null
 let lastMeasuredSignature = ''
 
@@ -46,6 +49,7 @@ function applyTheme(theme) {
 }
 
 async function onSnapshot(nextSnapshot) {
+  lastMeasuredSignature = ''
   snapshot.value = nextSnapshot
   applyTheme(nextSnapshot.theme)
   await nextTick()
@@ -56,6 +60,22 @@ async function onSnapshot(nextSnapshot) {
 function withRequestToken(payload) {
   if (!snapshot.value?.requestToken) return payload
   return { ...payload, requestToken: snapshot.value.requestToken }
+}
+
+function ownsReveal(payload) {
+  if (!Number.isSafeInteger(payload?.requestId) || payload.requestId <= 0) return false
+  if (!snapshot.value || payload.id !== snapshot.value.id) return false
+  if (snapshot.value.requestToken) return payload.requestToken === snapshot.value.requestToken
+  return payload.requestToken === undefined
+}
+
+function onPrepareReveal(payload) {
+  if (!ownsReveal(payload)) return
+  cancelPreparedReveal?.()
+  cancelPreparedReveal = scheduleAfterNextPaint(() => {
+    cancelPreparedReveal = null
+    if (ownsReveal(payload)) window.popoverApi.revealReady(payload)
+  })
 }
 
 function measure() {
@@ -121,6 +141,7 @@ function onKeydown(event) {
 onMounted(() => {
   document.documentElement.classList.toggle('is-windows-popover', isWindows)
   removeSnapshot = window.popoverApi.onSnapshot(onSnapshot)
+  removePrepareReveal = window.popoverApi.onPrepareReveal(onPrepareReveal)
   document.addEventListener('keydown', onKeydown)
 })
 
@@ -129,6 +150,9 @@ onBeforeUnmount(() => {
   resizeObserver?.disconnect()
   resizeObserver = null
   removeSnapshot?.()
+  cancelPreparedReveal?.()
+  cancelPreparedReveal = null
+  removePrepareReveal?.()
   document.removeEventListener('keydown', onKeydown)
 })
 </script>

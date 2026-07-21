@@ -19,20 +19,23 @@ const defaults = {
   fontFamily: 'default'
 }
 
-const { prefs, status, revision, apply, savePatch } = usePreferenceSection({
-  defaults,
-  get: window.api.epubGetPrefs,
-  set: window.api.epubSetPrefs,
-  listen: window.api.onEpubPrefsChange
-})
+const { prefs, status, readiness, writable, revision, isDisposed, apply, savePatch } =
+  usePreferenceSection({
+    defaults,
+    get: window.api.epubGetPrefs,
+    set: window.api.epubSetPrefs,
+    listen: window.api.onEpubPrefsChange
+  })
 
 function setNumber(field, value) {
   savePatch({ [field]: value })
 }
 
 async function saveFontFamily(value) {
+  if (!writable.value || isDisposed()) return prefs.value
   try {
     const next = await window.api.epubSetPrefs({ fontFamily: value })
+    if (isDisposed()) return prefs.value
     apply(next)
     status.value = { kind: '', text: '' }
     logDiagnostic('reader.font_family_change', {
@@ -43,6 +46,7 @@ async function saveFontFamily(value) {
     })
     return next
   } catch (error) {
+    if (isDisposed()) return prefs.value
     status.value = { kind: 'error', text: error?.message || '保存失败' }
     logDiagnosticError('reader.font_family_change', error, {
       kind: 'epub',
@@ -56,12 +60,18 @@ async function saveFontFamily(value) {
 </script>
 
 <template>
-  <section class="prefs-sect" data-test="epub-section">
+  <section
+    class="prefs-sect"
+    :class="{ 'is-loading': readiness === 'loading' }"
+    data-test="epub-section"
+    :aria-busy="readiness === 'loading' ? 'true' : undefined"
+  >
     <div class="prefs-line">
       <span class="prefs-line__label">默认模式</span>
       <PrefsSegmented
         :options="MODE_OPTIONS"
         :model-value="prefs.defaultMode"
+        :disabled="!writable"
         aria-label="EPUB 默认模式"
         data-test="epub-default-mode"
         @update:model-value="savePatch({ defaultMode: $event })"
@@ -75,6 +85,7 @@ async function saveFontFamily(value) {
         :max="24"
         :step="1"
         :sync-key="revision"
+        :disabled="!writable"
         data-test="epub-font-size"
         @update:model-value="setNumber('fontSize', $event)"
       />
@@ -84,6 +95,7 @@ async function saveFontFamily(value) {
       <PrefsSelect
         :options="FONT_FAMILY_OPTIONS"
         :model-value="prefs.fontFamily || defaults.fontFamily"
+        :disabled="!writable"
         aria-label="EPUB 字体"
         data-test="epub-font-family"
         @update:model-value="saveFontFamily"
@@ -97,6 +109,7 @@ async function saveFontFamily(value) {
         :max="2"
         :step="0.1"
         :sync-key="revision"
+        :disabled="!writable"
         data-test="epub-line-height"
         @update:model-value="setNumber('lineHeight', $event)"
       />
@@ -109,6 +122,7 @@ async function saveFontFamily(value) {
         :max="180"
         :step="1"
         :sync-key="revision"
+        :disabled="!writable"
         data-test="epub-auto-turn-sec"
         @update:model-value="setNumber('autoTurnSec', $event)"
       />

@@ -1,5 +1,6 @@
 import { computed, getCurrentInstance, onBeforeUnmount, reactive, watch } from 'vue'
 import { POPOVER_SHIFT_TOLERANCE_DIP } from '../../../shared/popoverProtocol.js'
+import { createPopoverRequestToken } from '../popoverRequestToken.js'
 
 export function decidePopoverHost({
   placement,
@@ -29,21 +30,27 @@ export function createPopoverOverflowController(options) {
   const controller = { isChildHostActive, recompute, closeChild, dispose }
   let requestGeneration = 0
   let activeChildRequestToken = null
+  let pendingChildOpen = null
   const stopSnapshotWatch = watch(
     () => options.snapshot.value,
     (snapshot) => {
-      if (state.childActive && snapshot) {
-        window.api.popoverUpdateSnapshot(withRequestToken(snapshot, activeChildRequestToken))
+      const requestToken = activeChildRequestToken ?? pendingChildOpen?.requestToken ?? null
+      if (requestToken && snapshot) {
+        window.api.popoverUpdateSnapshot(withRequestToken(snapshot, requestToken))
       }
     },
     { deep: true }
   )
 
   const removeAction = window.api.onPopoverChildAction?.((payload) => {
-    if (payload?.id === options.id) options.onChildAction?.(payload)
+    const requestToken = activeChildRequestToken ?? pendingChildOpen?.requestToken ?? null
+    if (payload?.id !== options.id || payload.requestToken !== requestToken) return
+    options.onChildAction?.(payload)
   })
   const removeClose = window.api.onPopoverChildClose?.((payload) => {
-    if (payload?.id === options.id) options.onChildClose?.(payload)
+    const requestToken = activeChildRequestToken ?? pendingChildOpen?.requestToken ?? null
+    if (payload?.id !== options.id || payload.requestToken !== requestToken) return
+    options.onChildClose?.(payload)
   })
   const removeRecompute = window.api.onPopoverRecomputeRequest?.((payload) => {
     if (payload?.id === options.id) controller.recompute()
@@ -91,8 +98,11 @@ export function createPopoverOverflowController(options) {
           desiredSizeDip
         })
     if (decision.host === 'child') {
-      const requestToken = `${options.id}:${generation}`
-      const opened = await window.api.popoverOpen({
+      const updatingActiveChild = state.childActive && activeChildRequestToken !== null
+      let openState = updatingActiveChild ? null : pendingChildOpen
+      const requestToken =
+        activeChildRequestToken ?? openState?.requestToken ?? createPopoverRequestToken(options.id)
+      const childPayload = {
         id: options.id,
         requestToken,
         placement: decision.placement,
@@ -100,14 +110,33 @@ export function createPopoverOverflowController(options) {
         desiredSizeDip,
         mainWindowSizeDip: { width: window.innerWidth, height: window.innerHeight },
         snapshot: options.snapshot.value
-      })
+      }
+
+      let opened
+      if (updatingActiveChild) {
+        opened = await window.api.popoverUpdateSnapshot(childPayload)
+      } else if (openState) {
+        await window.api.popoverUpdateSnapshot(childPayload)
+        opened = await openState.promise
+      } else {
+        const promise = Promise.resolve(window.api.popoverOpen(childPayload))
+        openState = { requestToken, promise }
+        pendingChildOpen = openState
+        opened = await promise
+      }
+
+      const ownsRequest = updatingActiveChild
+        ? activeChildRequestToken === requestToken
+        : pendingChildOpen === openState
       const stale = generation !== requestGeneration || state.disposed || !options.modelValue.value
       if (stale) {
-        if (opened === true && (state.disposed || !options.modelValue.value)) {
+        if (opened === true && (state.disposed || !options.modelValue.value) && ownsRequest) {
           await window.api.popoverClose({ id: options.id, requestToken })
         }
         return
       }
+
+      if (openState && pendingChildOpen === openState) pendingChildOpen = null
       activeChildRequestToken = opened === true ? requestToken : null
       state.childActive = opened === true
       if (opened !== true && shouldForceChildHost()) {
@@ -120,10 +149,11 @@ export function createPopoverOverflowController(options) {
 
   async function closeChild() {
     requestGeneration++
-    if (!state.childActive) return
-    const requestToken = activeChildRequestToken
+    const requestToken = activeChildRequestToken ?? pendingChildOpen?.requestToken ?? null
     activeChildRequestToken = null
+    pendingChildOpen = null
     state.childActive = false
+    if (!requestToken) return
     await window.api.popoverClose({ id: options.id, requestToken })
   }
 

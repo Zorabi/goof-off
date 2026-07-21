@@ -18,7 +18,7 @@ const PAGE_DISPLAY_OPTIONS = [
 
 const defaults = { defaultZoom: 'fit-width', pageDisplay: 'page' }
 
-const { prefs, status, revision, savePatch } = usePreferenceSection({
+const { prefs, status, readiness, writable, revision, savePatch } = usePreferenceSection({
   defaults,
   get: window.api.pdfGetPrefs,
   set: window.api.pdfSetPrefs,
@@ -37,12 +37,18 @@ function setZoomKind(value) {
 </script>
 
 <template>
-  <section class="prefs-sect" data-test="pdf-section">
+  <section
+    class="prefs-sect"
+    :class="{ 'is-loading': readiness === 'loading' }"
+    data-test="pdf-section"
+    :aria-busy="readiness === 'loading' ? 'true' : undefined"
+  >
     <div class="prefs-line">
       <span class="prefs-line__label">默认缩放类型</span>
       <PrefsSegmented
         :options="ZOOM_KIND_OPTIONS"
         :model-value="zoomKind"
+        :disabled="!writable"
         aria-label="PDF 默认缩放类型"
         data-test="pdf-zoom-kind"
         @update:model-value="setZoomKind"
@@ -57,7 +63,7 @@ function setZoomKind(value) {
         :step="5"
         :sync-key="revision"
         suffix="%"
-        :disabled="zoomKind === 'fit-width'"
+        :disabled="!writable || zoomKind === 'fit-width'"
         data-test="pdf-default-zoom"
         @update:model-value="savePatch({ defaultZoom: $event })"
       />
@@ -67,6 +73,7 @@ function setZoomKind(value) {
       <PrefsSelect
         :options="PAGE_DISPLAY_OPTIONS"
         :model-value="prefs.pageDisplay"
+        :disabled="!writable"
         aria-label="PDF 页码显示"
         data-test="pdf-page-display"
         @update:model-value="savePatch({ pageDisplay: $event })"

@@ -101,7 +101,22 @@ export function registerIpcHandlers({
   const platformPolicy = getRuntimePlatformPolicy()
   const historyService = createHistoryService(store)
   const epubService = createEpubService(store, persistDebounced)
+  let managedPreferenceTransactionTail = Promise.resolve()
   webviewManager.setHistoryService(historyService)
+
+  function enqueueManagedPreferenceTransaction(task) {
+    const previous = managedPreferenceTransactionTail
+    const current = previous.catch(() => {}).then(task)
+    managedPreferenceTransactionTail = current
+    void current
+      .finally(() => {
+        if (managedPreferenceTransactionTail === current) {
+          managedPreferenceTransactionTail = Promise.resolve()
+        }
+      })
+      .catch(() => {})
+    return current
+  }
 
   function summarizeResult(result) {
     if (result && typeof result === 'object') {
@@ -205,28 +220,30 @@ export function registerIpcHandlers({
 
   ipcMain.handle('diagnostic-prefs:set', async (e, patch = {}) => {
     if (!isPreferencesSender(e.sender)) return { ok: false, reason: 'forbidden' }
-    const current = getDiagnosticPrefs()
-    const clean = sanitizeDiagnosticPrefsPatch(patch)
-    if (Object.keys(clean).length === 0) return current
-    const next = normalizeDiagnosticPrefs({ ...current, ...clean })
-    if (current.enabled === next.enabled) return current
-    if (!next.enabled) {
-      await diagnosticLogger.info(
-        'diagnostic.enabled_change',
-        { enabled: false, source: 'preferences', ok: true },
-        'main'
-      )
-      store.set('diagnosticPrefs', next)
-    } else {
-      store.set('diagnosticPrefs', next)
-      await diagnosticLogger.info(
-        'diagnostic.enabled_change',
-        { enabled: true, source: 'preferences', ok: true },
-        'main'
-      )
-    }
-    sendToWindows('diagnostic-prefs:changed', next)
-    return next
+    return enqueueManagedPreferenceTransaction(async () => {
+      const current = getDiagnosticPrefs()
+      const clean = sanitizeDiagnosticPrefsPatch(patch)
+      if (Object.keys(clean).length === 0) return current
+      const next = normalizeDiagnosticPrefs({ ...current, ...clean })
+      if (current.enabled === next.enabled) return current
+      if (!next.enabled) {
+        await diagnosticLogger.info(
+          'diagnostic.enabled_change',
+          { enabled: false, source: 'preferences', ok: true },
+          'main'
+        )
+        store.set('diagnosticPrefs', next)
+      } else {
+        store.set('diagnosticPrefs', next)
+        await diagnosticLogger.info(
+          'diagnostic.enabled_change',
+          { enabled: true, source: 'preferences', ok: true },
+          'main'
+        )
+      }
+      sendToWindows('diagnostic-prefs:changed', next)
+      return next
+    })
   })
 
   ipcMain.handle('history:list', () => historyService.list())
@@ -497,16 +514,20 @@ export function registerIpcHandlers({
 
   ipcMain.handle('boss-key:set', (e, which, accelerator) => {
     if (!isPreferencesSender(e.sender)) return false
-    const ok = bossKeyService.setKey(which, accelerator)
-    if (ok) sendToWindows('boss-key:changed', store.get('bossKeys'))
-    return ok
+    return enqueueManagedPreferenceTransaction(async () => {
+      const ok = bossKeyService.setKey(which, accelerator)
+      if (ok) sendToWindows('boss-key:changed', store.get('bossKeys'))
+      return ok
+    })
   })
 
   ipcMain.handle('boss-key:reset', (e) => {
     if (!isPreferencesSender(e.sender)) return { ok: false, reason: 'forbidden' }
-    const { keys, failures } = bossKeyService.resetKeys()
-    sendToWindows('boss-key:changed', keys)
-    return { ok: true, keys, failures }
+    return enqueueManagedPreferenceTransaction(async () => {
+      const { keys, failures } = bossKeyService.resetKeys()
+      sendToWindows('boss-key:changed', keys)
+      return { ok: true, keys, failures }
+    })
   })
 
   function getStoredWebPrefs() {
@@ -576,82 +597,90 @@ export function registerIpcHandlers({
     const fromMain = isMainSender(e.sender)
     const fromPreferences = isPreferencesSender(e.sender)
     if (!fromMain && !fromPreferences) return null
-    const current = getTransparencyPrefs()
-    if (payload.toggle && !fromMain) return current
-    if (!payload.patch && !payload.toggle) return current
-    const allowedPayload = payload.patch
-      ? (() => {
-          const allowedKeys = fromPreferences
-            ? ['merged', 'windowLevel', 'contentLevel']
-            : ['contentLevel']
-          const patch = Object.fromEntries(
-            allowedKeys
-              .filter((key) => Object.prototype.hasOwnProperty.call(payload.patch, key))
-              .map((key) => [key, payload.patch[key]])
-          )
-          return Object.keys(patch).length > 0 ? { patch } : null
-        })()
-      : { toggle: payload.toggle }
-    if (!allowedPayload) return current
-    const next = updateTransparencyPrefs(allowedPayload)
-    if (areTransparencyPrefsEqual(current, next)) return current
-    if (
-      allowedPayload.patch &&
-      Object.prototype.hasOwnProperty.call(allowedPayload.patch, 'merged') &&
-      next.merged === true
-    ) {
-      await syncMergedPlainView(next, 'preferences')
-    }
-    applyCurrentTransparency()
-    sendToWindows('transparency-prefs:changed', next)
-    return next
+    return enqueueManagedPreferenceTransaction(async () => {
+      const current = getTransparencyPrefs()
+      if (payload.toggle && !fromMain) return current
+      if (!payload.patch && !payload.toggle) return current
+      const allowedPayload = payload.patch
+        ? (() => {
+            const allowedKeys = fromPreferences
+              ? ['merged', 'windowLevel', 'contentLevel']
+              : ['contentLevel']
+            const patch = Object.fromEntries(
+              allowedKeys
+                .filter((key) => Object.prototype.hasOwnProperty.call(payload.patch, key))
+                .map((key) => [key, payload.patch[key]])
+            )
+            return Object.keys(patch).length > 0 ? { patch } : null
+          })()
+        : { toggle: payload.toggle }
+      if (!allowedPayload) return current
+      const next = updateTransparencyPrefs(allowedPayload)
+      if (areTransparencyPrefsEqual(current, next)) return current
+      if (
+        allowedPayload.patch &&
+        Object.prototype.hasOwnProperty.call(allowedPayload.patch, 'merged') &&
+        next.merged === true
+      ) {
+        await syncMergedPlainView(next, 'preferences')
+      }
+      applyCurrentTransparency()
+      sendToWindows('transparency-prefs:changed', next)
+      return next
+    })
   })
 
   ipcMain.handle('web-prefs:set', async (e, patch) => {
-    const current = getStoredWebPrefs()
     const fromPreferences = isPreferencesSender(e.sender)
-    const allowedPatch = fromPreferences
-      ? patch
-      : Object.fromEntries(
-          MAIN_ALLOWED_WEB_PREFS.filter((key) =>
-            Object.prototype.hasOwnProperty.call(patch || {}, key)
-          ).map((key) => [key, patch[key]])
-        )
-    const clean = sanitizeWebPrefsPatch(allowedPatch)
-    if (Object.keys(clean).length === 0) return current
-    const merged = normalizeWebPrefs({ ...current, ...clean }, platformPolicy)
-    const reloadForPlainViewDisable =
-      Object.prototype.hasOwnProperty.call(clean, 'plainView') &&
-      current.plainView === true &&
-      merged.plainView === false
-    const plainViewReloadOptions = reloadForPlainViewDisable
-      ? { reloadForPlainViewDisable: true }
-      : {}
-    store.set('webPrefs', merged)
-    if (fromPreferences) {
-      if (reloadForPlainViewDisable)
-        await webviewManager.applyCurrentWebPrefs(plainViewReloadOptions)
-      else await webviewManager.applyCurrentWebPrefs()
-    } else {
-      await webviewManager.applyCurrentWebPrefs({ skipReload: true, ...plainViewReloadOptions })
-    }
-    sendToWindows('web-prefs:changed', merged)
-    sendToWindows('site-web-prefs:changed', webviewManager.getCurrentSiteWebPrefs())
-    return merged
+    return enqueueManagedPreferenceTransaction(async () => {
+      const current = getStoredWebPrefs()
+      const allowedPatch = fromPreferences
+        ? patch
+        : Object.fromEntries(
+            MAIN_ALLOWED_WEB_PREFS.filter((key) =>
+              Object.prototype.hasOwnProperty.call(patch || {}, key)
+            ).map((key) => [key, patch[key]])
+          )
+      const clean = sanitizeWebPrefsPatch(allowedPatch)
+      if (Object.keys(clean).length === 0) return current
+      const merged = normalizeWebPrefs({ ...current, ...clean }, platformPolicy)
+      const reloadForPlainViewDisable =
+        Object.prototype.hasOwnProperty.call(clean, 'plainView') &&
+        current.plainView === true &&
+        merged.plainView === false
+      const plainViewReloadOptions = reloadForPlainViewDisable
+        ? { reloadForPlainViewDisable: true }
+        : {}
+      store.set('webPrefs', merged)
+      if (fromPreferences) {
+        if (reloadForPlainViewDisable)
+          await webviewManager.applyCurrentWebPrefs(plainViewReloadOptions)
+        else await webviewManager.applyCurrentWebPrefs()
+      } else {
+        await webviewManager.applyCurrentWebPrefs({ skipReload: true, ...plainViewReloadOptions })
+      }
+      sendToWindows('web-prefs:changed', merged)
+      sendToWindows('site-web-prefs:changed', webviewManager.getCurrentSiteWebPrefs())
+      return merged
+    })
   })
 
   ipcMain.handle('site-web-prefs:get-current', () => webviewManager.getCurrentSiteWebPrefs())
   ipcMain.handle('site-web-prefs:set-current', async (e, patch) => {
     if (!isPreferencesSender(e.sender)) return { ok: false, reason: 'forbidden' }
-    const result = await webviewManager.setCurrentSiteWebPrefs(patch)
-    sendToWindows('site-web-prefs:changed', result)
-    return result
+    return enqueueManagedPreferenceTransaction(async () => {
+      const result = await webviewManager.setCurrentSiteWebPrefs(patch)
+      sendToWindows('site-web-prefs:changed', result)
+      return result
+    })
   })
   ipcMain.handle('site-web-prefs:clear-current', async (e) => {
     if (!isPreferencesSender(e.sender)) return { ok: false, reason: 'forbidden' }
-    const result = await webviewManager.clearCurrentSiteWebPrefs()
-    sendToWindows('site-web-prefs:changed', result)
-    return result
+    return enqueueManagedPreferenceTransaction(async () => {
+      const result = await webviewManager.clearCurrentSiteWebPrefs()
+      sendToWindows('site-web-prefs:changed', result)
+      return result
+    })
   })
 
   ipcMain.handle('file-visual-prefs:get', () => {
@@ -728,28 +757,32 @@ export function registerIpcHandlers({
 
   ipcMain.handle('app-cache:clear', async (e) => {
     if (!isPreferencesSender(e.sender)) return { ok: false, reason: 'forbidden' }
-    const result = await maintenanceService.clearCache()
-    await webviewManager.applyCurrentWebPrefs({ skipReload: true })
-    broadcastAppStateHome()
-    sendToWindows('site-web-prefs:changed', webviewManager.getCurrentSiteWebPrefs())
-    return result
+    return enqueueManagedPreferenceTransaction(async () => {
+      const result = await maintenanceService.clearCache()
+      await webviewManager.applyCurrentWebPrefs({ skipReload: true })
+      broadcastAppStateHome()
+      sendToWindows('site-web-prefs:changed', webviewManager.getCurrentSiteWebPrefs())
+      return result
+    })
   })
 
   ipcMain.handle('app:initialize', async (e) => {
     if (!isPreferencesSender(e.sender)) return { ok: false, reason: 'forbidden' }
-    const result = await maintenanceService.initializeApp()
-    await webviewManager.applyCurrentWebPrefs({ skipReload: true })
-    applyCurrentTransparency()
-    const currentManagedPrefs = getRawManagedPrefs()
-    applyThemePrefs(currentManagedPrefs.themePrefs)
-    broadcastManagedPrefs(currentManagedPrefs)
-    broadcastEffectiveTheme()
-    broadcastAppStateHome()
-    broadcastHistoryChanged()
-    broadcastSitesChanged()
-    broadcastSitePresetPrefsChanged()
-    broadcastSiteOrderChanged()
-    return result
+    return enqueueManagedPreferenceTransaction(async () => {
+      const result = await maintenanceService.initializeApp()
+      await webviewManager.applyCurrentWebPrefs({ skipReload: true })
+      applyCurrentTransparency()
+      const currentManagedPrefs = getRawManagedPrefs()
+      applyThemePrefs(currentManagedPrefs.themePrefs)
+      broadcastManagedPrefs(currentManagedPrefs)
+      broadcastEffectiveTheme()
+      broadcastAppStateHome()
+      broadcastHistoryChanged()
+      broadcastSitesChanged()
+      broadcastSitePresetPrefsChanged()
+      broadcastSiteOrderChanged()
+      return result
+    })
   })
 
   ipcMain.handle('maintenance:renderer-reset-complete', (e, requestId, result) => {
@@ -839,41 +872,47 @@ export function registerIpcHandlers({
   })
 
   ipcMain.handle('startup-prefs:set', (e, patch) => {
-    const current = normalizeStartupPrefs(store.get('startupPrefs'))
-    if (!isPreferencesSender(e.sender)) return current
-    const clean = sanitizeStartupPrefsPatch(patch)
-    if (Object.keys(clean).length === 0) return current
-    const merged = normalizeStartupPrefs({ ...current, ...clean })
-    store.set('startupPrefs', merged)
-    sendToWindows('startup-prefs:changed', merged)
-    return merged
+    if (!isPreferencesSender(e.sender)) return normalizeStartupPrefs(store.get('startupPrefs'))
+    return enqueueManagedPreferenceTransaction(async () => {
+      const current = normalizeStartupPrefs(store.get('startupPrefs'))
+      const clean = sanitizeStartupPrefsPatch(patch)
+      if (Object.keys(clean).length === 0) return current
+      const merged = normalizeStartupPrefs({ ...current, ...clean })
+      store.set('startupPrefs', merged)
+      sendToWindows('startup-prefs:changed', merged)
+      return merged
+    })
   })
 
   ipcMain.handle('history-prefs:get', () => normalizeHistoryPrefs(store.get('historyPrefs')))
   ipcMain.handle('history-prefs:set', (e, patch) => {
-    const current = normalizeHistoryPrefs(store.get('historyPrefs'))
-    if (!isPreferencesSender(e.sender)) return current
-    const clean = sanitizeHistoryPrefsPatch(patch)
-    if (Object.keys(clean).length === 0) return current
-    const merged = normalizeHistoryPrefs({ ...current, ...clean })
-    store.set('historyPrefs', merged)
-    sendToWindows('history-prefs:changed', merged)
-    return merged
+    if (!isPreferencesSender(e.sender)) return normalizeHistoryPrefs(store.get('historyPrefs'))
+    return enqueueManagedPreferenceTransaction(async () => {
+      const current = normalizeHistoryPrefs(store.get('historyPrefs'))
+      const clean = sanitizeHistoryPrefsPatch(patch)
+      if (Object.keys(clean).length === 0) return current
+      const merged = normalizeHistoryPrefs({ ...current, ...clean })
+      store.set('historyPrefs', merged)
+      sendToWindows('history-prefs:changed', merged)
+      return merged
+    })
   })
 
   ipcMain.handle('theme-prefs:get', () => getThemePrefs())
   ipcMain.handle('theme-prefs:set', (e, patch) => {
-    const current = getThemePrefs()
-    if (!isPreferencesSender(e.sender)) return current
-    const clean = sanitizeThemePrefsPatch(patch)
-    if (Object.keys(clean).length === 0) return current
-    const merged = normalizeThemePrefs({ ...current, ...clean })
-    if (merged.mode === current.mode) return current
-    store.set('themePrefs', merged)
-    applyThemePrefs(merged)
-    broadcastThemePrefs(merged)
-    broadcastEffectiveTheme()
-    return merged
+    if (!isPreferencesSender(e.sender)) return getThemePrefs()
+    return enqueueManagedPreferenceTransaction(async () => {
+      const current = getThemePrefs()
+      const clean = sanitizeThemePrefsPatch(patch)
+      if (Object.keys(clean).length === 0) return current
+      const merged = normalizeThemePrefs({ ...current, ...clean })
+      if (merged.mode === current.mode) return current
+      store.set('themePrefs', merged)
+      applyThemePrefs(merged)
+      broadcastThemePrefs(merged)
+      broadcastEffectiveTheme()
+      return merged
+    })
   })
 
   ipcMain.handle('system-prefs:get', (e) => {
@@ -882,91 +921,121 @@ export function registerIpcHandlers({
   })
 
   ipcMain.handle('system-prefs:set', async (e, patch) => {
-    const current = getSystemPrefs()
-    if (!isPreferencesSender(e.sender)) return current
-    const clean = sanitizeSystemPrefsPatch(patch)
-    if (Object.keys(clean).length === 0) return current
-    const next = normalizeSystemPrefs({ ...current, ...clean })
-    if (next.showInTaskbarOrDock === current.showInTaskbarOrDock) return current
-    const mainWindow = getMainWindow()
-    const usableMainWindow = mainWindow && !mainWindow.isDestroyed?.() ? mainWindow : null
-    const applied = await applySystemVisibilityPrefs(next, { win: usableMainWindow })
-    if (!applied.ok) return current
-    store.set('systemPrefs', applied.prefs)
-    sendToWindows('system-prefs:changed', applied.prefs)
-    return applied.prefs
+    if (!isPreferencesSender(e.sender)) return getSystemPrefs()
+    return enqueueManagedPreferenceTransaction(async () => {
+      const current = getSystemPrefs()
+      const clean = sanitizeSystemPrefsPatch(patch)
+      if (Object.keys(clean).length === 0) return current
+      const next = normalizeSystemPrefs({ ...current, ...clean })
+      if (next.showInTaskbarOrDock === current.showInTaskbarOrDock) return current
+      const mainWindow = getMainWindow()
+      const usableMainWindow = mainWindow && !mainWindow.isDestroyed?.() ? mainWindow : null
+      const applied = await applySystemVisibilityPrefs(next, { win: usableMainWindow })
+      if (!applied.ok) return current
+      store.set('systemPrefs', applied.prefs)
+      sendToWindows('system-prefs:changed', applied.prefs)
+      return applied.prefs
+    })
   })
 
-  ipcMain.handle('preferences:export', async (e) => {
-    if (!isPreferencesSender(e.sender)) return { ok: false, reason: 'forbidden' }
-    const win = preferencesWindow.getWindow()
-    const result = await dialog.showSaveDialog(win, {
-      title: '导出配置',
-      defaultPath: 'goof-off-preferences.json',
-      filters: [{ name: 'JSON', extensions: ['json'] }]
-    })
-    if (result.canceled || !result.filePath) return { ok: false, reason: 'cancelled' }
-    const bundle = {
-      version: 1,
-      app: 'goof-off-app',
-      exportedAt: new Date().toISOString(),
-      prefs: buildPreferenceBundlePrefs(getRawManagedPrefs(), platformPolicy)
-    }
-    try {
-      await fsp.writeFile(result.filePath, JSON.stringify(bundle, null, 2), 'utf8')
-      return { ok: true, path: result.filePath }
-    } catch (err) {
-      return { ok: false, reason: 'write-error', message: err?.message || '导出失败' }
-    }
-  })
+  function isCurrentNativeDialogSession(lease) {
+    return preferencesWindow.isNativeDialogSessionCurrent?.(lease) === true
+  }
 
-  ipcMain.handle('preferences:import', async (e) => {
-    if (!isPreferencesSender(e.sender)) return { ok: false, reason: 'forbidden' }
-    const win = preferencesWindow.getWindow()
-    const result = await dialog.showOpenDialog(win, {
-      title: '导入配置',
-      filters: [{ name: 'JSON', extensions: ['json'] }],
-      properties: ['openFile']
-    })
-    if (result.canceled || !result.filePaths?.length) return { ok: false, reason: 'cancelled' }
-    let parsed
+  function beginNativeDialogLease(sender) {
+    return preferencesWindow.beginNativeDialog?.(sender) || null
+  }
+
+  function finishNativeDialogLease(lease) {
     try {
-      parsed = JSON.parse(await fsp.readFile(result.filePaths[0], 'utf8'))
-    } catch (err) {
-      return {
-        ok: false,
-        reason: err instanceof SyntaxError ? 'parse-error' : 'read-error',
-        message: err?.message || '导入失败'
-      }
+      preferencesWindow.finishNativeDialog?.(lease)
+    } catch (error) {
+      void error
     }
-    if (parsed?.app !== 'goof-off-app' || parsed?.version !== 1 || !parsed?.prefs) {
-      return { ok: false, reason: 'invalid-bundle', message: '配置文件格式不匹配' }
+  }
+
+  function reportPreferenceImportRefreshFailure() {
+    try {
+      void Promise.resolve(
+        diagnosticLogger.warn(
+          'preferences.import_webview_refresh_failed',
+          { ok: false, reason: 'refresh-failed' },
+          'main'
+        )
+      ).catch(() => {})
+    } catch (error) {
+      void error
     }
+  }
+
+  function preparePreferenceImport(parsed) {
     const merged = mergeImportedPrefs(getRawManagedPrefs(), parsed.prefs, platformPolicy)
-    const { bossKeys, transparencyPrefs, systemPrefs, ...plainPrefs } = merged.next
-    const invalidFields = [...merged.invalidFields]
     const currentSystemPrefs = getSystemPrefs()
+    const currentWebPrefs = getStoredWebPrefs()
+    const stagedTransparencyPrefs = merged.next.transparencyPrefs
+    const stagedPlainView = stagedTransparencyPrefs.merged
+      ? stagedTransparencyPrefs.windowEnabled === true
+      : merged.next.webPrefs.plainView
+    const stagedWebPrefs = normalizeWebPrefs(
+      { ...merged.next.webPrefs, plainView: stagedPlainView },
+      platformPolicy
+    )
+    return {
+      merged,
+      next: { ...merged.next, webPrefs: stagedWebPrefs },
+      currentSystemPrefs,
+      hasExplicitSystemPrefs: Object.prototype.hasOwnProperty.call(parsed.prefs, 'systemPrefs'),
+      reloadForPlainViewDisable: currentWebPrefs.plainView === true && stagedPlainView === false
+    }
+  }
+
+  async function applyPreparedPreferenceImport(prepared, lease) {
+    const { merged, next, currentSystemPrefs, hasExplicitSystemPrefs, reloadForPlainViewDisable } =
+      prepared
+    const { bossKeys, transparencyPrefs, systemPrefs } = next
+    const plainPrefs = Object.fromEntries(
+      Object.entries(next).filter(
+        ([key]) => key !== 'bossKeys' && key !== 'transparencyPrefs' && key !== 'systemPrefs'
+      )
+    )
+    const invalidFields = [...merged.invalidFields]
     let finalSystemPrefs = currentSystemPrefs
+
     if (
-      Object.prototype.hasOwnProperty.call(parsed.prefs, 'systemPrefs') &&
+      hasExplicitSystemPrefs &&
       systemPrefs.showInTaskbarOrDock !== currentSystemPrefs.showInTaskbarOrDock
     ) {
       const mainWindow = getMainWindow()
       const usableMainWindow = mainWindow && !mainWindow.isDestroyed?.() ? mainWindow : null
-      const appliedSystemPrefs = await applySystemVisibilityPrefs(systemPrefs, {
-        win: usableMainWindow
-      })
-      if (appliedSystemPrefs.ok) {
-        finalSystemPrefs = appliedSystemPrefs.prefs
-      } else {
-        invalidFields.push('systemPrefs.showInTaskbarOrDock')
+      let appliedSystemPrefs
+      try {
+        appliedSystemPrefs = await applySystemVisibilityPrefs(systemPrefs, {
+          win: usableMainWindow
+        })
+      } catch (error) {
+        if (!isCurrentNativeDialogSession(lease)) return { ok: false, reason: 'inactive' }
+        appliedSystemPrefs = { ok: false, reason: error?.message || 'system-visibility-failed' }
       }
+      if (!isCurrentNativeDialogSession(lease)) {
+        if (appliedSystemPrefs?.ok) {
+          try {
+            await applySystemVisibilityPrefs(currentSystemPrefs, { win: usableMainWindow })
+          } catch (error) {
+            void error
+          }
+        }
+        return { ok: false, reason: 'inactive' }
+      }
+      if (appliedSystemPrefs?.ok) finalSystemPrefs = appliedSystemPrefs.prefs || systemPrefs
+      else invalidFields.push('systemPrefs.showInTaskbarOrDock')
     }
+
+    if (!isCurrentNativeDialogSession(lease)) return { ok: false, reason: 'inactive' }
+
     writeManagedPrefs(plainPrefs)
     const appliedTransparencyPrefs = replaceTransparencyPrefs(transparencyPrefs, {
       persist: 'sync'
     })
-    const importPlainViewSync = await syncMergedPlainView(appliedTransparencyPrefs, 'import')
     const bossResult = bossKeyService.applyKeys(bossKeys)
     store.set('bossKeys', bossResult.keys)
     if (finalSystemPrefs.showInTaskbarOrDock !== currentSystemPrefs.showInTaskbarOrDock) {
@@ -974,85 +1043,194 @@ export function registerIpcHandlers({
     }
     const finalPrefs = {
       ...plainPrefs,
-      webPrefs: importPlainViewSync?.webPrefs ?? getStoredWebPrefs(),
       transparencyPrefs: appliedTransparencyPrefs,
       bossKeys: bossResult.keys,
       systemPrefs: finalSystemPrefs
     }
-    await webviewManager.applyCurrentWebPrefs()
     applyCurrentTransparency()
     applyThemePrefs(finalPrefs.themePrefs)
     broadcastManagedPrefs(finalPrefs)
     broadcastEffectiveTheme()
+    try {
+      if (reloadForPlainViewDisable) {
+        await webviewManager.applyCurrentWebPrefs({
+          skipReload: true,
+          reloadForPlainViewDisable: true
+        })
+      } else {
+        await webviewManager.applyCurrentWebPrefs()
+      }
+    } catch {
+      reportPreferenceImportRefreshFailure()
+    }
     return {
       ok: true,
       ignoredFields: merged.ignoredFields,
       invalidFields,
       bossKeyFailures: bossResult.failures
     }
+  }
+
+  ipcMain.handle('preferences:export', async (e) => {
+    if (!isPreferencesSender(e.sender)) return { ok: false, reason: 'forbidden' }
+    const lease = beginNativeDialogLease(e.sender)
+    if (!lease) return { ok: false, reason: 'inactive' }
+    try {
+      let result
+      try {
+        result = await dialog.showSaveDialog(lease.createdWindow, {
+          title: '导出配置',
+          defaultPath: 'goof-off-preferences.json',
+          filters: [{ name: 'JSON', extensions: ['json'] }]
+        })
+      } catch {
+        return isCurrentNativeDialogSession(lease)
+          ? { ok: false, reason: 'cancelled' }
+          : { ok: false, reason: 'inactive' }
+      }
+      if (!isCurrentNativeDialogSession(lease)) return { ok: false, reason: 'inactive' }
+      if (result?.canceled || !result?.filePath) return { ok: false, reason: 'cancelled' }
+      const snapshot = await enqueueManagedPreferenceTransaction(() => {
+        if (!isCurrentNativeDialogSession(lease)) return { ok: false, reason: 'inactive' }
+        return {
+          ok: true,
+          bundle: {
+            version: 1,
+            app: 'goof-off-app',
+            exportedAt: new Date().toISOString(),
+            prefs: buildPreferenceBundlePrefs(getRawManagedPrefs(), platformPolicy)
+          }
+        }
+      })
+      if (!snapshot.ok || !isCurrentNativeDialogSession(lease)) {
+        return { ok: false, reason: 'inactive' }
+      }
+      try {
+        await fsp.writeFile(result.filePath, JSON.stringify(snapshot.bundle, null, 2), 'utf8')
+        if (!isCurrentNativeDialogSession(lease)) return { ok: false, reason: 'inactive' }
+        return { ok: true, path: result.filePath }
+      } catch (err) {
+        if (!isCurrentNativeDialogSession(lease)) return { ok: false, reason: 'inactive' }
+        return { ok: false, reason: 'write-error', message: err?.message || '导出失败' }
+      }
+    } finally {
+      finishNativeDialogLease(lease)
+    }
+  })
+
+  ipcMain.handle('preferences:import', async (e) => {
+    if (!isPreferencesSender(e.sender)) return { ok: false, reason: 'forbidden' }
+    const lease = beginNativeDialogLease(e.sender)
+    if (!lease) return { ok: false, reason: 'inactive' }
+    try {
+      let result
+      try {
+        result = await dialog.showOpenDialog(lease.createdWindow, {
+          title: '导入配置',
+          filters: [{ name: 'JSON', extensions: ['json'] }],
+          properties: ['openFile']
+        })
+      } catch {
+        return isCurrentNativeDialogSession(lease)
+          ? { ok: false, reason: 'cancelled' }
+          : { ok: false, reason: 'inactive' }
+      }
+      if (!isCurrentNativeDialogSession(lease)) return { ok: false, reason: 'inactive' }
+      if (result?.canceled || !result?.filePaths?.length) return { ok: false, reason: 'cancelled' }
+      let raw
+      try {
+        raw = await fsp.readFile(result.filePaths[0], 'utf8')
+      } catch (err) {
+        if (!isCurrentNativeDialogSession(lease)) return { ok: false, reason: 'inactive' }
+        return { ok: false, reason: 'read-error', message: err?.message || '导入失败' }
+      }
+      if (!isCurrentNativeDialogSession(lease)) return { ok: false, reason: 'inactive' }
+      let parsed
+      try {
+        parsed = JSON.parse(raw)
+      } catch (err) {
+        return { ok: false, reason: 'parse-error', message: err?.message || '导入失败' }
+      }
+      if (parsed?.app !== 'goof-off-app' || parsed?.version !== 1 || !parsed?.prefs) {
+        return { ok: false, reason: 'invalid-bundle', message: '配置文件格式不匹配' }
+      }
+      return await enqueueManagedPreferenceTransaction(async () => {
+        if (!isCurrentNativeDialogSession(lease)) return { ok: false, reason: 'inactive' }
+        const prepared = preparePreferenceImport(parsed)
+        return await applyPreparedPreferenceImport(prepared, lease)
+      })
+    } finally {
+      finishNativeDialogLease(lease)
+    }
   })
 
   ipcMain.handle('preferences:reset-defaults', async (e) => {
     if (!isPreferencesSender(e.sender)) return { ok: false, reason: 'forbidden' }
-    const defaults = buildPreferenceBundlePrefs(
-      buildDefaultManagedPrefs(platformPolicy),
-      platformPolicy
-    )
-    const { bossKeys, transparencyPrefs, systemPrefs, ...plainDefaults } = defaults
-    writeManagedPrefs(plainDefaults)
-    const appliedTransparencyPrefs = replaceTransparencyPrefs(transparencyPrefs, {
-      persist: 'sync'
-    })
-    const resetPlainViewSync = await syncMergedPlainView(appliedTransparencyPrefs, 'preferences')
-    const bossResult = bossKeyService.applyKeys(bossKeys)
-    store.set('bossKeys', bossResult.keys)
-    const mainWindow = getMainWindow()
-    const usableMainWindow = mainWindow && !mainWindow.isDestroyed?.() ? mainWindow : null
-    const appliedSystemPrefs = await applySystemVisibilityPrefs(systemPrefs, {
-      win: usableMainWindow
-    })
-    const finalSystemPrefs = appliedSystemPrefs.ok ? appliedSystemPrefs.prefs : getSystemPrefs()
-    if (appliedSystemPrefs.ok) store.set('systemPrefs', finalSystemPrefs)
-    const finalPrefs = {
-      ...plainDefaults,
-      webPrefs: resetPlainViewSync?.webPrefs ?? getStoredWebPrefs(),
-      transparencyPrefs: appliedTransparencyPrefs,
-      bossKeys: bossResult.keys,
-      systemPrefs: finalSystemPrefs
-    }
-    await webviewManager.applyCurrentWebPrefs()
-    applyCurrentTransparency()
-    applyThemePrefs(finalPrefs.themePrefs)
-    broadcastManagedPrefs(finalPrefs)
-    broadcastEffectiveTheme()
-    if (!appliedSystemPrefs.ok) {
-      return {
-        ok: false,
-        reason: appliedSystemPrefs.reason,
-        bossKeyFailures: bossResult.failures
+    return enqueueManagedPreferenceTransaction(async () => {
+      const defaults = buildPreferenceBundlePrefs(
+        buildDefaultManagedPrefs(platformPolicy),
+        platformPolicy
+      )
+      const { bossKeys, transparencyPrefs, systemPrefs, ...plainDefaults } = defaults
+      writeManagedPrefs(plainDefaults)
+      const appliedTransparencyPrefs = replaceTransparencyPrefs(transparencyPrefs, {
+        persist: 'sync'
+      })
+      const resetPlainViewSync = await syncMergedPlainView(appliedTransparencyPrefs, 'preferences')
+      const bossResult = bossKeyService.applyKeys(bossKeys)
+      store.set('bossKeys', bossResult.keys)
+      const mainWindow = getMainWindow()
+      const usableMainWindow = mainWindow && !mainWindow.isDestroyed?.() ? mainWindow : null
+      const appliedSystemPrefs = await applySystemVisibilityPrefs(systemPrefs, {
+        win: usableMainWindow
+      })
+      const finalSystemPrefs = appliedSystemPrefs.ok ? appliedSystemPrefs.prefs : getSystemPrefs()
+      if (appliedSystemPrefs.ok) store.set('systemPrefs', finalSystemPrefs)
+      const finalPrefs = {
+        ...plainDefaults,
+        webPrefs: resetPlainViewSync?.webPrefs ?? getStoredWebPrefs(),
+        transparencyPrefs: appliedTransparencyPrefs,
+        bossKeys: bossResult.keys,
+        systemPrefs: finalSystemPrefs
       }
-    }
-    return { ok: true, bossKeyFailures: bossResult.failures }
+      await webviewManager.applyCurrentWebPrefs()
+      applyCurrentTransparency()
+      applyThemePrefs(finalPrefs.themePrefs)
+      broadcastManagedPrefs(finalPrefs)
+      broadcastEffectiveTheme()
+      if (!appliedSystemPrefs.ok) {
+        return {
+          ok: false,
+          reason: appliedSystemPrefs.reason,
+          bossKeyFailures: bossResult.failures
+        }
+      }
+      return { ok: true, bossKeyFailures: bossResult.failures }
+    })
   })
 
   ipcMain.handle('file-visual-prefs:set', (e, patch) => {
-    const current = normalizeFileVisualPrefs(store.get('fileVisualPrefs'))
-    if (!isPreferencesSender(e.sender)) return current
-    const clean = sanitizeFileVisualPrefsPatch(patch)
-    if (Object.keys(clean).length === 0) return current
-    const merged = normalizeFileVisualPrefs({ ...current, ...clean })
-    store.set('fileVisualPrefs', merged)
-
-    const mainWin = getMainWindow()
-    if (mainWin && !mainWin.isDestroyed()) {
-      mainWin.webContents.send('file-visual-prefs:changed', merged)
+    if (!isPreferencesSender(e.sender)) {
+      return normalizeFileVisualPrefs(store.get('fileVisualPrefs'))
     }
-    const prefsWin = preferencesWindow.getWindow()
-    if (prefsWin && !prefsWin.isDestroyed()) {
-      prefsWin.webContents.send('file-visual-prefs:changed', merged)
-    }
+    return enqueueManagedPreferenceTransaction(async () => {
+      const current = normalizeFileVisualPrefs(store.get('fileVisualPrefs'))
+      const clean = sanitizeFileVisualPrefsPatch(patch)
+      if (Object.keys(clean).length === 0) return current
+      const merged = normalizeFileVisualPrefs({ ...current, ...clean })
+      store.set('fileVisualPrefs', merged)
 
-    return merged
+      const mainWin = getMainWindow()
+      if (mainWin && !mainWin.isDestroyed()) {
+        mainWin.webContents.send('file-visual-prefs:changed', merged)
+      }
+      const prefsWin = preferencesWindow.getWindow()
+      if (prefsWin && !prefsWin.isDestroyed()) {
+        prefsWin.webContents.send('file-visual-prefs:changed', merged)
+      }
+
+      return merged
+    })
   })
 
   registerLoggedHandle('window:set-mouse-passthrough', async (e, payload = {}) => {
@@ -1189,21 +1367,24 @@ export function registerIpcHandlers({
   })
   ipcMain.handle('txt:get-prefs', () => txtService.getPrefs())
   ipcMain.handle('txt:set-prefs', (e, patch) => {
-    const current = txtService.getPrefs()
     const fromMain = isMainSender(e.sender)
     const fromPreferences = isPreferencesSender(e.sender)
-    if (!fromMain && !fromPreferences) return current
-    const allowedPatch = fromPreferences
-      ? patch
-      : Object.fromEntries(
-          MAIN_ALLOWED_TXT_PREFS.filter((key) =>
-            Object.prototype.hasOwnProperty.call(patch || {}, key)
-          ).map((key) => [key, patch[key]])
-        )
-    if (!allowedPatch || Object.keys(allowedPatch).length === 0) return current
-    const next = txtService.setPrefs(allowedPatch)
-    sendToWindows('txt-prefs:changed', next)
-    return next
+    if (!fromMain && !fromPreferences) return txtService.getPrefs()
+    return enqueueManagedPreferenceTransaction(async () => {
+      const current = txtService.getPrefs()
+      const allowedPatch = fromPreferences
+        ? patch
+        : Object.fromEntries(
+            MAIN_ALLOWED_TXT_PREFS.filter((key) =>
+              Object.prototype.hasOwnProperty.call(patch || {}, key)
+            ).map((key) => [key, patch[key]])
+          )
+      if (!allowedPatch || Object.keys(allowedPatch).length === 0) return current
+      const next = txtService.setPrefs(allowedPatch)
+      flushStorePending()
+      sendToWindows('txt-prefs:changed', next)
+      return next
+    })
   })
   ipcMain.handle('file:open-dialog', async () => {
     const result = await txtService.openDialog()
@@ -1241,21 +1422,23 @@ export function registerIpcHandlers({
   })
   ipcMain.handle('epub:get-prefs', () => epubService.getPrefs())
   ipcMain.handle('epub:set-prefs', (e, patch) => {
-    const current = epubService.getPrefs()
     const fromMain = isMainSender(e.sender)
     const fromPreferences = isPreferencesSender(e.sender)
-    if (!fromMain && !fromPreferences) return current
-    const allowedPatch = fromPreferences
-      ? patch
-      : Object.fromEntries(
-          MAIN_ALLOWED_EPUB_PREFS.filter((key) =>
-            Object.prototype.hasOwnProperty.call(patch || {}, key)
-          ).map((key) => [key, patch[key]])
-        )
-    if (!allowedPatch || Object.keys(allowedPatch).length === 0) return current
-    const next = epubService.setPrefs(allowedPatch)
-    sendToWindows('epub-prefs:changed', next)
-    return next
+    if (!fromMain && !fromPreferences) return epubService.getPrefs()
+    return enqueueManagedPreferenceTransaction(async () => {
+      const current = epubService.getPrefs()
+      const allowedPatch = fromPreferences
+        ? patch
+        : Object.fromEntries(
+            MAIN_ALLOWED_EPUB_PREFS.filter((key) =>
+              Object.prototype.hasOwnProperty.call(patch || {}, key)
+            ).map((key) => [key, patch[key]])
+          )
+      if (!allowedPatch || Object.keys(allowedPatch).length === 0) return current
+      const next = epubService.setPrefs(allowedPatch)
+      sendToWindows('epub-prefs:changed', next)
+      return next
+    })
   })
 
   // PDF
@@ -1333,11 +1516,13 @@ export function registerIpcHandlers({
   })
   ipcMain.handle('pdf:get-prefs', () => pdfService.getPrefs())
   ipcMain.handle('pdf:set-prefs', (e, patch) => {
-    const current = pdfService.getPrefs()
-    if (!isPreferencesSender(e.sender)) return current
-    const next = pdfService.setPrefs(patch)
-    sendToWindows('pdf-prefs:changed', next)
-    return next
+    if (!isPreferencesSender(e.sender)) return pdfService.getPrefs()
+    return enqueueManagedPreferenceTransaction(async () => {
+      const next = pdfService.setPrefs(patch)
+      flushStorePending()
+      sendToWindows('pdf-prefs:changed', next)
+      return next
+    })
   })
 
   nativeTheme.on('updated', () => {

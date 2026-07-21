@@ -5,22 +5,67 @@ import { formatAccelerator } from '../../../../shared/platformPolicy.js'
 const keys = ref({ hide: '', kill: '' })
 const listening = ref(null)
 const error = ref({ which: null, text: '' })
+const readiness = ref('loading')
+const loadError = ref('')
 const platformPolicy = window.api?.platformPolicy
 let unlisten = null
+let disposed = true
+let changeRevision = 0
+let subscriptionFailed = false
 
-onMounted(async () => {
-  keys.value = await window.api.bossKeyGet()
-  unlisten = window.api.onBossKeyChange?.((next) => {
-    keys.value = next
-  })
+function applyKeys(next) {
+  if (disposed) return
+  keys.value = next
+}
+
+onMounted(() => {
+  disposed = false
+  const startedAtRevision = changeRevision
+  try {
+    const cleanup = window.api.onBossKeyChange?.((next) => {
+      if (disposed) return
+      changeRevision += 1
+      applyKeys(next)
+    })
+    unlisten = typeof cleanup === 'function' ? cleanup : null
+  } catch (err) {
+    subscriptionFailed = true
+    unlisten = null
+    readiness.value = 'failed'
+    loadError.value = err?.message || '读取失败'
+  }
+  void (async () => {
+    try {
+      const next = await window.api.bossKeyGet()
+      if (disposed) return
+      if (changeRevision === startedAtRevision) applyKeys(next)
+      if (!subscriptionFailed) {
+        readiness.value = 'ready'
+        loadError.value = ''
+      }
+    } catch (err) {
+      if (disposed) return
+      readiness.value = 'failed'
+      loadError.value = err?.message || '读取失败'
+    }
+  })()
 })
 
 onBeforeUnmount(() => {
+  disposed = true
   if (listening.value) stopListening()
-  unlisten?.()
+  const cleanup = unlisten
+  unlisten = null
+  if (typeof cleanup !== 'function') return
+  try {
+    cleanup()
+  } catch {
+    // Listener teardown must not escape after the section is disposed.
+  }
 })
 
 function startListening(which) {
+  if (readiness.value !== 'ready') return
   if (listening.value) stopListening()
   error.value = { which: null, text: '' }
   listening.value = which
@@ -42,9 +87,17 @@ async function onKey(event) {
   const accel = toAccelerator(event)
   const which = listening.value
   stopListening()
-  const ok = await window.api.bossKeySet(which, accel)
+  let ok
+  try {
+    ok = await window.api.bossKeySet(which, accel)
+  } catch (err) {
+    if (disposed) return
+    error.value = { which, text: err?.message || '保存失败' }
+    return
+  }
+  if (disposed) return
   if (ok) {
-    keys.value = { ...keys.value, [which]: accel }
+    applyKeys({ ...keys.value, [which]: accel })
   } else {
     error.value = { which, text: `"${accel}" 被占用，保留原键位` }
   }
@@ -65,11 +118,20 @@ function display(accel) {
 }
 
 async function resetKeys() {
+  if (readiness.value !== 'ready') return
   if (listening.value) stopListening()
   error.value = { which: null, text: '' }
-  const result = await window.api.bossKeyReset()
+  let result
+  try {
+    result = await window.api.bossKeyReset()
+  } catch (err) {
+    if (disposed) return
+    error.value = { which: null, text: err?.message || '恢复失败' }
+    return
+  }
+  if (disposed) return
   if (!result?.ok) return
-  keys.value = result.keys
+  applyKeys(result.keys)
   if (result.failures?.length) {
     error.value = { which: result.failures[0], text: '默认键位被占用，保留原键位' }
   }
@@ -77,8 +139,16 @@ async function resetKeys() {
 </script>
 
 <template>
-  <section class="prefs-sect">
+  <section
+    class="prefs-sect"
+    :class="{ 'is-loading': readiness === 'loading' }"
+    :aria-busy="readiness === 'loading' ? 'true' : undefined"
+  >
     <div class="prefs-secthead">老板键</div>
+    <div v-if="loadError" class="prefs-line__hint is-danger">{{ loadError }}</div>
+    <div v-if="error.which === null && error.text" class="prefs-line__hint is-danger">
+      {{ error.text }}
+    </div>
     <div class="prefs-line">
       <div class="prefs-line__text">
         <div class="prefs-line__label">隐藏</div>
@@ -89,6 +159,7 @@ async function resetKeys() {
         class="prefs-keybtn"
         :class="{ 'is-listening': listening === 'hide' }"
         data-test="boss-hide"
+        :disabled="readiness !== 'ready'"
         @click="startListening('hide')"
       >
         {{ listening === 'hide' ? '按下按键组合…' : display(keys.hide) }}
@@ -104,6 +175,7 @@ async function resetKeys() {
         class="prefs-keybtn"
         :class="{ 'is-listening': listening === 'kill' }"
         data-test="boss-kill"
+        :disabled="readiness !== 'ready'"
         @click="startListening('kill')"
       >
         {{ listening === 'kill' ? '按下按键组合…' : display(keys.kill) }}
@@ -111,7 +183,13 @@ async function resetKeys() {
     </div>
     <div class="prefs-line">
       <span class="prefs-line__label">键位设置</span>
-      <button type="button" class="prefs-action" data-test="boss-reset" @click="resetKeys">
+      <button
+        type="button"
+        class="prefs-action"
+        data-test="boss-reset"
+        :disabled="readiness !== 'ready'"
+        @click="resetKeys"
+      >
         恢复默认
       </button>
     </div>

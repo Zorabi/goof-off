@@ -67,7 +67,10 @@ export function registerHideKey(accelerator) {
     nextKey: accelerator,
     callback: async () => {
       const win = getMainWindow()
-      if (!win) return
+      if (!win || win.isDestroyed?.()) {
+        hideWindow()
+        return
+      }
       if (isHidden) {
         doRestore()
         return

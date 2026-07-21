@@ -1,4 +1,4 @@
-# 自动发布：推送 v* 格式的 tag（如 v1.0.0）时触发。
+# 自动发布：推送 v* 格式的 tag（如 v1.1.0）时触发。
 # 在 Windows / macOS 上分别打包，然后把安装包上传到该 tag 对应的 GitHub Release。
 # 无需配置任何 secret——GITHUB_TOKEN 由 Actions 自动注入。
 name: Release
@@ -19,7 +19,9 @@ jobs:
         include:
           - os: windows-latest
             script: build:win
-            files: dist/*.exe
+            files: |
+              dist/*.exe
+              dist/*.zip
           - os: macos-latest
             script: build:mac
             files: |
@@ -36,8 +38,13 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Verify release tag matches package version
-        run: node -e "const expectedTag = 'v' + require('./package.json').version; if (process.env.GITHUB_REF_NAME !== expectedTag) { throw new Error('Release tag ' + process.env.GITHUB_REF_NAME + ' does not match package version ' + expectedTag + '.'); }"
+      - name: Verify release metadata
+        run: >-
+          node -e "const fs = require('node:fs');
+          const expectedTag = 'v' + require('./package.json').version;
+          if (process.env.GITHUB_REF_NAME !== expectedTag) { throw new Error('Release tag ' + process.env.GITHUB_REF_NAME + ' does not match package version ' + expectedTag + '.'); }
+          const notesPath = '.github/release-notes/' + expectedTag + '.md';
+          if (!fs.existsSync(notesPath) || !fs.readFileSync(notesPath, 'utf8').trim()) { throw new Error('Release notes are missing or empty: ' + notesPath); }"
 
       - run: npm ci
 
@@ -55,6 +62,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: release-assets
@@ -63,8 +74,5 @@ jobs:
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: release-assets/*
-          generate_release_notes: true
-          body: |
-            > Portable 版采用单文件自解压封装，每次运行前需将程序释放到临时目录，启动耗时通常高于 Setup 安装版。
-            >
-            > 安装包未做代码签名：Windows 首次运行如弹出 SmartScreen，请点「更多信息 → 仍要运行」；macOS 如提示「无法验证开发者」，请右键 App → 打开。
+          name: Goof Off ${{ github.ref_name }}
+          body_path: .github/release-notes/${{ github.ref_name }}.md
