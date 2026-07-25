@@ -77,7 +77,7 @@ const api = {
   pdfGetPrefs: () => ipcRenderer.invoke('pdf:get-prefs'),
   pdfSetPrefs: (patch) => ipcRenderer.invoke('pdf:set-prefs', patch),
   onPdfPrefsChange: (callback) => {
-    const handler = (_e, prefs) => callback(prefs)
+    const handler = (_e, prefs, options) => callback(prefs, options)
     ipcRenderer.on('pdf-prefs:changed', handler)
     return () => ipcRenderer.removeListener('pdf-prefs:changed', handler)
   },

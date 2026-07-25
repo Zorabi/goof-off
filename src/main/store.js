@@ -188,10 +188,11 @@ const store = new Store({
     },
     pdfPrefs: {
       type: 'object',
-      default: { defaultZoom: 'fit-width', pageDisplay: 'page' },
+      default: { defaultZoom: 'fit-width', pageDisplay: 'page', invertColors: false },
       properties: {
         defaultZoom: { anyOf: [{ type: 'string' }, { type: 'number' }] },
-        pageDisplay: { type: 'string', enum: ['page', 'percent', 'both'] }
+        pageDisplay: { type: 'string', enum: ['page', 'percent', 'both'] },
+        invertColors: { type: 'boolean' }
       }
     },
     pdfProgress: {

@@ -63,7 +63,8 @@ export const DEFAULT_EPUB_PREFS = Object.freeze({
 
 export const DEFAULT_PDF_PREFS = Object.freeze({
   defaultZoom: 'fit-width',
-  pageDisplay: 'page'
+  pageDisplay: 'page',
+  invertColors: false
 })
 
 export const DEFAULT_STARTUP_PREFS = Object.freeze({
@@ -267,7 +268,11 @@ export function normalizePdfPrefs(value) {
         : DEFAULT_PDF_PREFS.defaultZoom,
     pageDisplay: PAGE_DISPLAY.has(source.pageDisplay)
       ? source.pageDisplay
-      : DEFAULT_PDF_PREFS.pageDisplay
+      : DEFAULT_PDF_PREFS.pageDisplay,
+    invertColors:
+      typeof source.invertColors === 'boolean'
+        ? source.invertColors
+        : DEFAULT_PDF_PREFS.invertColors
   }
 }
 
@@ -282,6 +287,9 @@ export function sanitizePdfPrefsPatch(patch) {
   }
   if ('pageDisplay' in patch && PAGE_DISPLAY.has(patch.pageDisplay)) {
     out.pageDisplay = patch.pageDisplay
+  }
+  if ('invertColors' in patch && typeof patch.invertColors === 'boolean') {
+    out.invertColors = patch.invertColors
   }
   return out
 }

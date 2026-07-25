@@ -2,12 +2,14 @@
 import { computed } from 'vue'
 import SegmentedControl from './base/SegmentedControl.vue'
 import Stepper from './base/Stepper.vue'
+import Switch from './base/Switch.vue'
 
 const props = defineProps({
-  zoom: { type: Object, required: true }
+  zoom: { type: Object, required: true },
+  invertColors: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['set-preset', 'set-percent'])
+const emit = defineEmits(['set-preset', 'set-percent', 'set-invert-colors'])
 
 const fitPresetOptions = [
   { label: '适宽', value: 'fit-width' },
@@ -48,6 +50,12 @@ function formatPercent(value) {
       :format="formatPercent"
       @update:model-value="emit('set-percent', $event)"
     />
+    <Switch
+      class="pdf-invert-toggle"
+      :model-value="invertColors"
+      label="黑底白字"
+      @update:model-value="emit('set-invert-colors', $event)"
+    />
   </div>
 </template>
 
@@ -65,5 +73,10 @@ function formatPercent(value) {
 
 .pdf-fit-panel :deep(.segmented-option) {
   width: 100%;
+}
+
+.pdf-invert-toggle {
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-divider);
 }
 </style>

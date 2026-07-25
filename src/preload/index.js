@@ -255,7 +255,7 @@ const api = {
     return () => ipcRenderer.removeListener('epub-prefs:changed', handler)
   },
   onPdfPrefsChange: (callback) => {
-    const handler = (_e, prefs) => callback(prefs)
+    const handler = (_e, prefs, options) => callback(prefs, options)
     ipcRenderer.on('pdf-prefs:changed', handler)
     return () => ipcRenderer.removeListener('pdf-prefs:changed', handler)
   },

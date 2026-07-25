@@ -25,6 +25,7 @@ import {
   normalizeThemePrefs,
   sanitizeDiagnosticPrefsPatch,
   sanitizeHistoryPrefsPatch,
+  sanitizePdfPrefsPatch,
   sanitizeStartupPrefsPatch,
   sanitizeSystemPrefsPatch,
   sanitizeThemePrefsPatch
@@ -69,6 +70,7 @@ const MAIN_ALLOWED_EPUB_PREFS = [
   'defaultMode',
   'autoTurnSec'
 ]
+const MAIN_ALLOWED_PDF_PREFS = ['invertColors']
 
 function isPlainObject(value) {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
@@ -697,11 +699,11 @@ export function registerIpcHandlers({
     return Boolean(mainWin && !mainWin.isDestroyed() && mainWin.webContents === sender)
   }
 
-  function sendToWindows(channel, payload) {
+  function sendToWindows(channel, payload, ...extra) {
     const mainWin = getMainWindow()
-    if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send(channel, payload)
+    if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send(channel, payload, ...extra)
     const prefsWin = preferencesWindow.getWindow()
-    if (prefsWin && !prefsWin.isDestroyed()) prefsWin.webContents.send(channel, payload)
+    if (prefsWin && !prefsWin.isDestroyed()) prefsWin.webContents.send(channel, payload, ...extra)
   }
 
   function sendToMainWindow(channel, payload) {
@@ -816,7 +818,7 @@ export function registerIpcHandlers({
     sendToWindows('site-web-prefs:changed', webviewManager.getCurrentSiteWebPrefs())
     sendToWindows('txt-prefs:changed', prefs.txtPrefs)
     sendToWindows('epub-prefs:changed', prefs.epubPrefs)
-    sendToWindows('pdf-prefs:changed', prefs.pdfPrefs)
+    sendToWindows('pdf-prefs:changed', prefs.pdfPrefs, { replaceRuntime: true })
     sendToWindows('file-visual-prefs:changed', prefs.fileVisualPrefs)
     sendToWindows('transparency-prefs:changed', prefs.transparencyPrefs)
     sendToWindows('boss-key:changed', prefs.bossKeys)
@@ -1516,9 +1518,21 @@ export function registerIpcHandlers({
   })
   ipcMain.handle('pdf:get-prefs', () => pdfService.getPrefs())
   ipcMain.handle('pdf:set-prefs', (e, patch) => {
-    if (!isPreferencesSender(e.sender)) return pdfService.getPrefs()
+    const fromMain = isMainSender(e.sender)
+    const fromPreferences = isPreferencesSender(e.sender)
+    if (!fromMain && !fromPreferences) return pdfService.getPrefs()
     return enqueueManagedPreferenceTransaction(async () => {
-      const next = pdfService.setPrefs(patch)
+      const current = pdfService.getPrefs()
+      const allowedPatch = fromPreferences
+        ? patch
+        : Object.fromEntries(
+            MAIN_ALLOWED_PDF_PREFS.filter((key) =>
+              Object.prototype.hasOwnProperty.call(patch || {}, key)
+            ).map((key) => [key, patch[key]])
+          )
+      const cleanPatch = sanitizePdfPrefsPatch(allowedPatch)
+      if (Object.keys(cleanPatch).length === 0) return current
+      const next = pdfService.setPrefs(cleanPatch)
       flushStorePending()
       sendToWindows('pdf-prefs:changed', next)
       return next

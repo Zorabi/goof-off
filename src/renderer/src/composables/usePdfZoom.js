@@ -23,7 +23,15 @@ export function resolvePdfZoomPreset(preset) {
   return { mode: 'fixed', value: preset }
 }
 
-export function usePdfZoom(zoomRef, containerRef, innerRef, onZoomSettle, getEffectiveScale) {
+export function usePdfZoom(
+  zoomRef,
+  containerRef,
+  innerRef,
+  onZoomSettle,
+  getEffectiveScale,
+  onZoomStart,
+  onZoomCancel
+) {
   const cssScale = ref(1)
   const transformOrigin = ref('50% 50%')
   let settleTimer = null
@@ -35,12 +43,12 @@ export function usePdfZoom(zoomRef, containerRef, innerRef, onZoomSettle, getEff
     if (!e.ctrlKey || e.deltaY === 0) return
     e.preventDefault()
 
-    if (cssScale.value === 1) {
+    const isGestureStart = settleTimer === null
+    if (isGestureStart) {
       baseScale = getEffectiveScale()
     }
 
     const newScale = computeNewScale(baseScale * cssScale.value, e.deltaY)
-    cssScale.value = newScale / baseScale
 
     const rect = containerRef.value?.getBoundingClientRect()
     if (rect) {
@@ -50,9 +58,14 @@ export function usePdfZoom(zoomRef, containerRef, innerRef, onZoomSettle, getEff
       const contentY = containerRef.value.scrollTop + pinchOriginY
       transformOrigin.value = `${contentX}px ${contentY}px`
     }
+    if (isGestureStart) {
+      onZoomStart?.({ originX: pinchOriginX, originY: pinchOriginY, initialScale: baseScale })
+    }
+    cssScale.value = newScale / baseScale
 
     clearTimeout(settleTimer)
     settleTimer = setTimeout(() => {
+      settleTimer = null
       const finalScale = baseScale * cssScale.value
       const scaleRatio = finalScale / baseScale
 
@@ -61,11 +74,20 @@ export function usePdfZoom(zoomRef, containerRef, innerRef, onZoomSettle, getEff
         const oldScrollTop = containerRef.value.scrollTop
         const newScrollLeft = (pinchOriginX + oldScrollLeft) * scaleRatio - pinchOriginX
         const newScrollTop = (pinchOriginY + oldScrollTop) * scaleRatio - pinchOriginY
+        const restoreHorizontalAfterSettle = onZoomSettle?.(finalScale, {
+          originX: pinchOriginX,
+          originY: pinchOriginY,
+          scaleRatio
+        })
         cssScale.value = 1
         zoomRef.value = { mode: 'fixed', value: Math.round(finalScale * 100) }
-        if (onZoomSettle) onZoomSettle(finalScale)
         nextTick(() => {
-          containerRef.value.scrollLeft = Math.max(0, newScrollLeft)
+          if (!containerRef.value) return
+          if (typeof restoreHorizontalAfterSettle === 'function') {
+            restoreHorizontalAfterSettle()
+          } else {
+            containerRef.value.scrollLeft = Math.max(0, newScrollLeft)
+          }
           containerRef.value.scrollTop = Math.max(0, newScrollTop)
         })
       } else {
@@ -77,8 +99,28 @@ export function usePdfZoom(zoomRef, containerRef, innerRef, onZoomSettle, getEff
     }, SETTLE_MS)
   }
 
+  function isGestureActive() {
+    return settleTimer !== null
+  }
+
+  function cancelGesture() {
+    if (!isGestureActive()) return false
+    clearTimeout(settleTimer)
+    settleTimer = null
+    cssScale.value = 1
+    baseScale = getEffectiveScale()
+    onZoomCancel?.()
+    return true
+  }
+
   function stepZoom(direction) {
+    if (isGestureActive()) {
+      const next = computeSteppedPdfZoom(baseScale * cssScale.value, direction)
+      cssScale.value = next.value / 100 / baseScale
+      return next
+    }
     zoomRef.value = computeSteppedPdfZoom(getEffectiveScale(), direction)
+    return zoomRef.value
   }
 
   function resetZoom() {
@@ -91,12 +133,15 @@ export function usePdfZoom(zoomRef, containerRef, innerRef, onZoomSettle, getEff
 
   onUnmounted(() => {
     clearTimeout(settleTimer)
+    settleTimer = null
   })
 
   return {
     cssScale,
     transformOrigin,
     onWheel,
+    isGestureActive,
+    cancelGesture,
     stepZoom,
     resetZoom,
     setPreset

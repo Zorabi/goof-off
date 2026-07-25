@@ -104,6 +104,7 @@ export function usePdfRenderer(pdfDoc, pageCountRef, zoomRef, containerRef) {
   const pageOffsets = shallowRef([])
   const resolvedBaseSizePageCount = ref(0)
   const currentPage = ref(1)
+  const totalWidth = ref(0)
   const totalHeight = ref(0)
   const layoutScale = ref(1)
   const renderedPages = ref(new Set())
@@ -174,6 +175,10 @@ export function usePdfRenderer(pdfDoc, pageCountRef, zoomRef, containerRef) {
     layoutScale.value = scale
     const offsets = computePageOffsets(baseSizes.value, scale)
     pageOffsets.value = offsets
+    totalWidth.value = baseSizes.value.reduce(
+      (maxWidth, size) => Math.max(maxWidth, Math.round(size.w * scale)),
+      0
+    )
     if (offsets.length > 0 && baseSizes.value.length > 0) {
       const lastIdx = baseSizes.value.length - 1
       totalHeight.value = offsets[lastIdx] + Math.round(baseSizes.value[lastIdx].h * scale)
@@ -288,6 +293,7 @@ export function usePdfRenderer(pdfDoc, pageCountRef, zoomRef, containerRef) {
     pageOffsets,
     resolvedBaseSizePageCount,
     currentPage,
+    totalWidth,
     totalHeight,
     layoutScale,
     renderedPages,

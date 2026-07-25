@@ -8,9 +8,11 @@ import { pushStatus } from '../composables/usePageMessages.js'
 import { useAppState } from '../composables/useAppState.js'
 import { registerActiveReaderFlush } from '../composables/useActiveReaderFlush.js'
 import { shouldDiscardMaintenanceProgress } from '../composables/useMaintenanceReset.js'
+import { useReaderPrefs } from '../composables/useReaderPrefs.js'
 
 const { dispatch } = useAppState()
 const pdf = injectPdf()
+const { pdfPrefs } = useReaderPrefs()
 const containerRef = ref(null)
 const innerRef = ref(null)
 const canvasRefs = ref({})
@@ -29,10 +31,10 @@ const pdfZoom = usePdfZoom(
   pdf.zoom,
   containerRef,
   innerRef,
-  () => {
-    scheduleRenderPool()
-  },
-  () => renderer.effectiveScale()
+  onPdfWheelZoomSettle,
+  () => renderer.effectiveScale(),
+  onPdfWheelZoomStart,
+  onPdfWheelZoomCancel
 )
 
 usePdfKeyboard(onKeyboardPdfZoomStep, onKeyboardPdfZoomReset)
@@ -50,6 +52,83 @@ let unregisterActiveFlush = null
 const pendingRestoreAnchor = ref(null)
 const initialRestorePending = ref(false)
 let lastAppliedRestoreScrollTop = null
+let zoomOwnsHorizontalRestore = false
+let pendingTrackWidthAnchor = null
+let observedViewportWidth = null
+let stableHorizontalTrackAnchor = null
+let pendingResizeHorizontalAnchor = null
+let horizontalRestoreRevision = 0
+let lastKnownHorizontalScrollLeft = null
+let wheelZoomHorizontalAnchor = null
+
+function invalidatePendingResizeHorizontalAnchor() {
+  pendingResizeHorizontalAnchor = null
+  horizontalRestoreRevision += 1
+}
+
+function claimPdfZoomHorizontalRestore() {
+  zoomOwnsHorizontalRestore = true
+  pendingTrackWidthAnchor = null
+  invalidatePendingResizeHorizontalAnchor()
+}
+
+function onPdfWheelZoomStart({ originX } = {}) {
+  if (!containerRef.value) return
+  claimPdfZoomHorizontalRestore()
+  renderer.updateCurrentPage()
+  const page = renderer.currentPage.value
+  const viewportX = Number.isFinite(originX) ? originX : containerRef.value.clientWidth / 2
+  wheelZoomHorizontalAnchor = {
+    page,
+    viewportX,
+    pageWidth: scaledPageWidth(page),
+    horizontalRatio: capturePdfHorizontalPageAnchor(page, viewportX)
+  }
+}
+
+function onPdfWheelZoomCancel() {
+  wheelZoomHorizontalAnchor = null
+  zoomOwnsHorizontalRestore = false
+}
+
+function onPdfWheelZoomSettle(_finalScale, { originX } = {}) {
+  if (!containerRef.value) {
+    wheelZoomHorizontalAnchor = null
+    zoomOwnsHorizontalRestore = false
+    scheduleRenderPool()
+    return null
+  }
+  const viewportX = Number.isFinite(originX) ? originX : containerRef.value.clientWidth / 2
+  let anchor = wheelZoomHorizontalAnchor
+  if (!anchor) {
+    claimPdfZoomHorizontalRestore()
+    renderer.updateCurrentPage()
+    const page = renderer.currentPage.value
+    anchor = {
+      page,
+      viewportX,
+      pageWidth: scaledPageWidth(page),
+      horizontalRatio: capturePdfHorizontalPageAnchor(page, viewportX)
+    }
+  } else if (viewportX !== anchor.viewportX) {
+    if (Number.isFinite(anchor.horizontalRatio) && anchor.pageWidth > 0) {
+      anchor.horizontalRatio += (viewportX - anchor.viewportX) / anchor.pageWidth
+    } else {
+      anchor.horizontalRatio = capturePdfHorizontalPageAnchor(anchor.page, viewportX)
+    }
+    anchor.viewportX = viewportX
+  }
+  scheduleRenderPool()
+  return () => {
+    try {
+      if (!isMountedSessionCurrent() || !containerRef.value) return
+      restorePdfHorizontalPageAnchor(anchor, anchor.page, anchor.viewportX)
+    } finally {
+      if (wheelZoomHorizontalAnchor === anchor) wheelZoomHorizontalAnchor = null
+      zoomOwnsHorizontalRestore = false
+    }
+  }
+}
 
 function clearPendingRestoreAnchor() {
   pendingRestoreAnchor.value = null
@@ -109,6 +188,9 @@ onMounted(async () => {
     return
   }
   if (!isMountedSessionCurrent() || !containerRef.value) return
+  restorePdfHorizontalTrackAnchor(0)
+  observedViewportWidth = containerRef.value.clientWidth
+  rememberStableHorizontalTrackAnchor()
   const targetPage = pdf.currentPage.value
   const ratio = pdf.initialInPageRatio.value || 0
   if (targetPage > 1 || ratio > 0) {
@@ -121,8 +203,28 @@ onMounted(async () => {
   scheduleRenderPool()
 
   resizeObserver = new ResizeObserver(() => {
+    if (!containerRef.value) return
+    const viewportWidth = containerRef.value.clientWidth
+    if (
+      observedViewportWidth !== null &&
+      viewportWidth !== observedViewportWidth &&
+      !pendingResizeHorizontalAnchor
+    ) {
+      // ResizeObserver 仅在稳定锚点初始化后注册；上一轮回调结束时会让它与 observedViewportWidth 同步。
+      const stableAnchor = stableHorizontalTrackAnchor
+      pendingResizeHorizontalAnchor = {
+        offset: stableAnchor.offset,
+        revision: stableAnchor.revision
+      }
+    }
+    observedViewportWidth = viewportWidth
+    lastKnownHorizontalScrollLeft = containerRef.value.scrollLeft
+    rememberStableHorizontalTrackAnchor()
     if (resizeDebounce) clearTimeout(resizeDebounce)
     resizeDebounce = setTimeout(async () => {
+      const horizontalAnchor = pendingResizeHorizontalAnchor
+      pendingResizeHorizontalAnchor = null
+      if (zoomOwnsHorizontalRestore) return
       if (isResponsiveFitMode()) {
         const anchor = initialRestorePending.value ? null : capturePdfScrollAnchor()
         renderer.recomputeOffsets()
@@ -145,6 +247,12 @@ onMounted(async () => {
         renderer.renderedPages.value = new Set()
         failedPages.value = new Set()
         scheduleRenderPool()
+      } else if (
+        horizontalAnchor?.revision === horizontalRestoreRevision &&
+        isMountedSessionCurrent() &&
+        containerRef.value
+      ) {
+        restorePdfHorizontalTrackAnchor(horizontalAnchor.offset)
       }
     }, 150)
   })
@@ -189,12 +297,101 @@ function isResponsiveFitMode() {
   return pdf.zoom.value.mode === 'fit-width' || pdf.zoom.value.mode === 'fit-page'
 }
 
+function horizontalTrackWidth(
+  layoutWidth = renderer.totalWidth.value,
+  viewportWidth = containerRef.value?.clientWidth || 0
+) {
+  const viewportW = Number.isFinite(viewportWidth) ? Math.max(0, viewportWidth) : 0
+  const contentW = Number.isFinite(layoutWidth) ? layoutWidth : 0
+  return Math.max(viewportW, contentW)
+}
+
+function capturePdfHorizontalTrackAnchor(
+  layoutWidth = renderer.totalWidth.value,
+  viewportWidth = containerRef.value?.clientWidth || 0,
+  scrollLeft = containerRef.value?.scrollLeft || 0
+) {
+  if (!containerRef.value) return 0
+  const viewportW = Number.isFinite(viewportWidth) ? Math.max(0, viewportWidth) : 0
+  const scrollX = Number.isFinite(scrollLeft) ? scrollLeft : 0
+  const viewportCenter = scrollX + viewportW / 2
+  return viewportCenter - horizontalTrackWidth(layoutWidth, viewportW) / 2
+}
+
+function rememberStableHorizontalTrackAnchor() {
+  if (!containerRef.value) return
+  const viewportWidth = containerRef.value.clientWidth
+  if (observedViewportWidth !== null && viewportWidth !== observedViewportWidth) return
+  stableHorizontalTrackAnchor = {
+    viewportWidth,
+    offset: capturePdfHorizontalTrackAnchor(renderer.totalWidth.value, viewportWidth),
+    revision: horizontalRestoreRevision
+  }
+}
+
+function setPdfScrollLeft(
+  targetLeft,
+  layoutWidth = renderer.totalWidth.value,
+  viewportWidth = containerRef.value?.clientWidth || 0
+) {
+  if (!containerRef.value) return
+  const viewportW = Number.isFinite(viewportWidth) ? Math.max(0, viewportWidth) : 0
+  const maxLeft = Math.max(0, horizontalTrackWidth(layoutWidth, viewportW) - viewportW)
+  containerRef.value.scrollLeft = Math.min(maxLeft, Math.max(0, targetLeft))
+  lastKnownHorizontalScrollLeft = containerRef.value.scrollLeft
+  rememberStableHorizontalTrackAnchor()
+}
+
+function restorePdfHorizontalTrackAnchor(
+  offset = 0,
+  layoutWidth = renderer.totalWidth.value,
+  viewportWidth = containerRef.value?.clientWidth || 0
+) {
+  if (!containerRef.value) return
+  const viewportW = Number.isFinite(viewportWidth) ? Math.max(0, viewportWidth) : 0
+  const targetLeft =
+    horizontalTrackWidth(layoutWidth, viewportW) / 2 +
+    (Number.isFinite(offset) ? offset : 0) -
+    viewportW / 2
+  setPdfScrollLeft(targetLeft, layoutWidth, viewportW)
+}
+
+function scaledPageWidth(page) {
+  const size = renderer.baseSizes.value[page - 1]
+  return size ? Math.round(size.w * currentLayoutScale()) : 0
+}
+
+function capturePdfHorizontalPageAnchor(page, viewportX = containerRef.value?.clientWidth / 2) {
+  if (!containerRef.value) return null
+  const pageW = scaledPageWidth(page)
+  if (pageW <= 0) return null
+  const pageLeft = (horizontalTrackWidth() - pageW) / 2
+  const viewportPoint = containerRef.value.scrollLeft + viewportX
+  return (viewportPoint - pageLeft) / pageW
+}
+
+function restorePdfHorizontalPageAnchor(
+  anchor,
+  page,
+  viewportX = containerRef.value?.clientWidth / 2
+) {
+  const pageW = scaledPageWidth(page)
+  if (!Number.isFinite(anchor?.horizontalRatio) || pageW <= 0) {
+    restorePdfHorizontalTrackAnchor(0)
+    return
+  }
+  const pageLeft = (horizontalTrackWidth() - pageW) / 2
+  setPdfScrollLeft(pageLeft + pageW * anchor.horizontalRatio - viewportX)
+}
+
 function capturePdfScrollAnchor() {
   if (!containerRef.value || renderer.pageOffsets.value.length === 0) return null
   renderer.updateCurrentPage()
+  const page = renderer.currentPage.value
   return {
-    page: renderer.currentPage.value,
-    ratio: computeInPageRatio()
+    page,
+    ratio: computeInPageRatio(),
+    horizontalRatio: capturePdfHorizontalPageAnchor(page)
   }
 }
 
@@ -210,6 +407,7 @@ function restorePdfScrollAnchor(anchor) {
   const pageH = size ? Math.round(size.h * currentLayoutScale()) : 1
   const viewportH = containerRef.value.clientHeight
   const targetTop = Math.max(0, pageTop + pageH * anchor.ratio - viewportH / 2)
+  restorePdfHorizontalPageAnchor(anchor, idx + 1)
   containerRef.value.scrollTop = targetTop
   renderer.updateCurrentPage()
   syncPdfRuntimeProgress()
@@ -217,15 +415,32 @@ function restorePdfScrollAnchor(anchor) {
 }
 
 function applyPdfZoomChange(updateZoom) {
+  pdfZoom.cancelGesture()
   clearPendingRestoreAnchor()
   const anchor = capturePdfScrollAnchor()
-  updateZoom()
-  nextTick(() => restorePdfScrollAnchor(anchor))
+  claimPdfZoomHorizontalRestore()
+  try {
+    updateZoom()
+  } catch (err) {
+    zoomOwnsHorizontalRestore = false
+    throw err
+  }
+  nextTick(() => {
+    try {
+      restorePdfScrollAnchor(anchor)
+    } finally {
+      zoomOwnsHorizontalRestore = false
+    }
+  })
 }
 
 function onKeyboardPdfZoomStep(direction) {
   const delta = Number(direction)
   if (delta !== 1 && delta !== -1) return
+  if (pdfZoom.isGestureActive()) {
+    pdfZoom.stepZoom(delta)
+    return
+  }
   applyPdfZoomChange(() => pdfZoom.stepZoom(delta))
 }
 
@@ -397,6 +612,16 @@ function schedulePdfProgressSave() {
 }
 
 function onScroll() {
+  const scrollLeft = containerRef.value?.scrollLeft
+  if (
+    Number.isFinite(scrollLeft) &&
+    Number.isFinite(lastKnownHorizontalScrollLeft) &&
+    Math.abs(scrollLeft - lastKnownHorizontalScrollLeft) > 0.5
+  ) {
+    invalidatePendingResizeHorizontalAnchor()
+  }
+  lastKnownHorizontalScrollLeft = scrollLeft
+  rememberStableHorizontalTrackAnchor()
   if (initialRestorePending.value) return
   if (
     pendingRestoreAnchor.value &&
@@ -414,6 +639,7 @@ function onScroll() {
 watch(
   () => pdf.zoom.value,
   () => {
+    invalidatePendingResizeHorizontalAnchor()
     renderer.recomputeOffsets()
     renderer.cancelAll()
     for (const pageNum of renderer.renderedPages.value) {
@@ -457,13 +683,38 @@ watch(
   },
   { flush: 'post' }
 )
+
+watch(
+  () => renderer.totalWidth.value,
+  (_nextWidth, previousWidth) => {
+    if (!containerRef.value || zoomOwnsHorizontalRestore) return
+    if (!pendingTrackWidthAnchor) {
+      pendingTrackWidthAnchor = {
+        offset: capturePdfHorizontalTrackAnchor(previousWidth),
+        layoutWidth: _nextWidth
+      }
+    } else {
+      pendingTrackWidthAnchor.layoutWidth = _nextWidth
+    }
+    const anchor = pendingTrackWidthAnchor
+    nextTick(() => {
+      if (pendingTrackWidthAnchor !== anchor) return
+      pendingTrackWidthAnchor = null
+      if (zoomOwnsHorizontalRestore || !isMountedSessionCurrent() || !containerRef.value) return
+      restorePdfHorizontalTrackAnchor(anchor.offset, anchor.layoutWidth)
+    })
+  }
+)
 </script>
 
 <template>
   <div
     ref="containerRef"
     class="pdf-scroll-container"
-    :class="{ 'is-restoring-initial-scroll': initialRestorePending }"
+    :class="{
+      'is-restoring-initial-scroll': initialRestorePending,
+      'is-invert-colors': pdfPrefs.invertColors
+    }"
     :style="{ cursor: cursorStyle }"
     @scroll="onScroll"
     @mousedown="onMousedown"
@@ -475,6 +726,7 @@ watch(
       ref="innerRef"
       class="pdf-pages"
       :style="{
+        width: renderer.totalWidth.value + 'px',
         height: renderer.totalHeight.value + 'px',
         transform: pdfZoom.cssScale.value !== 1 ? `scale(${pdfZoom.cssScale.value})` : undefined,
         transformOrigin: pdfZoom.transformOrigin.value
@@ -524,6 +776,9 @@ watch(
 .pdf-scroll-container.is-restoring-initial-scroll {
   pointer-events: none;
 }
+.pdf-scroll-container.is-invert-colors {
+  background: #000;
+}
 .pdf-scroll-container.is-restoring-initial-scroll .pdf-pages {
   visibility: hidden;
 }
@@ -550,7 +805,7 @@ watch(
 }
 .pdf-pages {
   position: relative;
-  width: 100%;
+  min-width: 100%;
 }
 .pdf-page-slot {
   display: flex;
@@ -561,6 +816,24 @@ watch(
 }
 .pdf-canvas {
   display: block;
+}
+.pdf-scroll-container.is-invert-colors .pdf-page-slot {
+  background: #000;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 1px 3px rgba(0, 0, 0, 0.36);
+}
+.pdf-scroll-container.is-invert-colors .pdf-canvas {
+  filter: invert(1) hue-rotate(180deg);
+}
+.pdf-scroll-container.is-invert-colors .pdf-restore-page {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.1));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 8px 24px rgba(0, 0, 0, 0.28);
+}
+.pdf-scroll-container.is-invert-colors .pdf-page-error {
+  color: rgba(255, 255, 255, 0.72);
 }
 .pdf-page-error {
   color: var(--text-secondary);

@@ -40,7 +40,7 @@ const {
   setPatch: setTransparencyPatch
 } = useTransparency()
 const { webPrefs, sessionZoom, setWebPrefs, setWebSessionZoom, refreshWebPrefs } = useWebPrefs()
-const { current } = usePageMessages()
+const { current, pushStatus } = usePageMessages()
 const { current: dialog, respond } = useDialogPrompt()
 const promptInput = ref('')
 
@@ -49,7 +49,7 @@ const ctrl = injectTxtReaderController()
 const epub = injectEpub()
 const epubCtrl = injectEpubCtrl()
 const pdf = injectPdf()
-const { txtPrefs, epubPrefs, pdfPrefs } = useReaderPrefs()
+const { txtPrefs, epubPrefs, pdfPrefs, setPdfPrefs } = useReaderPrefs()
 const isTxt = computed(() => state.content === 'file' && state.fileKind === 'txt')
 const isEpub = computed(() => state.content === 'file' && state.fileKind === 'epub')
 const isPdf = computed(() => state.content === 'file' && state.fileKind === 'pdf')
@@ -171,6 +171,19 @@ function onPdfFitPreset(preset) {
 
 function onPdfPercent(value) {
   window.dispatchEvent(new CustomEvent('pdf:zoom-preset', { detail: value }))
+}
+
+async function setPdfInvertColors(value) {
+  try {
+    await setPdfPrefs({ invertColors: value })
+  } catch (error) {
+    logDiagnosticError('pdf.invert_colors_change', error, {
+      invertColors: value,
+      source: 'pdf-fit-popover',
+      ok: false
+    })
+    pushStatus('PDF 显示设置保存失败')
+  }
 }
 
 function clampWebZoom(value) {
@@ -815,14 +828,16 @@ onBeforeUnmount(() => {
       :anchor-el="pdfFitPopoverAnchorEl"
       panel-id="popover-pdf-fit"
       :offset="BOTTOM_POPOVER_OFFSET"
-      :max-height="120"
+      :max-height="156"
       :lock-applies-to="pdfApplies"
     >
       <template #content>
         <PdfFitPanel
           :zoom="pdf.zoom.value"
+          :invert-colors="pdfPrefs.invertColors"
           @set-preset="onPdfFitPreset"
           @set-percent="onPdfPercent"
+          @set-invert-colors="setPdfInvertColors"
         />
       </template>
     </BasePopover>

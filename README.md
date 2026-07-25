@@ -20,7 +20,7 @@
 </div>
 
 <p align="center">
-  <img src="./.github/assets/stealth.gif" width="900" alt="Goof Off 从常规阅读切换到背景隐去、界面淡化和自动隐藏" />
+  <img src="./.github/assets/stealth.webp" width="900" alt="Goof Off 从常规阅读切换到背景隐去、界面淡化和自动隐藏" />
 </p>
 
 <p align="center"><sub>macOS 实录界面；Windows 11 具备相同核心能力。</sub></p>
@@ -93,7 +93,7 @@ npm run dev
 - 开启「背景隐去」后，未合并控制时可在底栏点击「网页素览」，移除或压低页面背景；若已在偏好设置中合并为「隐身阅读」，开启该总开关会同步启用网页素览。关闭网页素览时，当前页面会刷新以恢复原始样式。
 
 <p align="center">
-  <img src="./.github/assets/web.gif" width="900" alt="从主页打开常用站点，在网页态展开地址栏并使用隐藏媒体和网页素览" />
+  <img src="./.github/assets/web.webp" width="900" alt="从主页打开常用站点，在网页态展开地址栏并使用隐藏媒体和网页素览" />
 </p>
 
 <p align="center"><sub>网页态：展开地址栏 → 隐藏媒体 → 开启网页素览。</sub></p>

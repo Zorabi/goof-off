@@ -16,7 +16,7 @@ const PAGE_DISPLAY_OPTIONS = [
   { value: 'both', label: '页码 + 百分比' }
 ]
 
-const defaults = { defaultZoom: 'fit-width', pageDisplay: 'page' }
+const defaults = { defaultZoom: 'fit-width', pageDisplay: 'page', invertColors: false }
 
 const { prefs, status, readiness, writable, revision, savePatch } = usePreferenceSection({
   defaults,
@@ -79,6 +79,16 @@ function setZoomKind(value) {
         @update:model-value="savePatch({ pageDisplay: $event })"
       />
     </div>
+    <label class="prefs-line">
+      <span class="prefs-line__label">黑底白字</span>
+      <input
+        data-test="pdf-invert-colors"
+        type="checkbox"
+        :checked="prefs.invertColors"
+        :disabled="!writable"
+        @change="savePatch({ invertColors: $event.target.checked })"
+      />
+    </label>
     <div v-if="status.text" class="prefs-line__hint is-danger">{{ status.text }}</div>
   </section>
 </template>

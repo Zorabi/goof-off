@@ -20,7 +20,7 @@ Goof Off combines TXT, EPUB, and PDF reading with web browsing, plus background 
 </div>
 
 <p align="center">
-  <img src="./.github/assets/stealth.gif" width="900" alt="Goof Off switching from normal reading to a hidden background, faded UI, and auto-hide" />
+  <img src="./.github/assets/stealth.webp" width="900" alt="Goof Off switching from normal reading to a hidden background, faded UI, and auto-hide" />
 </p>
 
 <p align="center"><sub>Captured on macOS; Windows 11 provides the same core capabilities.</sub></p>
@@ -93,7 +93,7 @@ npm run dev
 - After enabling “背景隐去” (Hide Background), click “网页素览” (Plain View) in the bottom bar when the controls are not merged to remove or soften page backgrounds. If the controls have been merged into “隐身阅读” (Stealth Reading) in Preferences, enabling that master switch also enables Plain View. Disabling Plain View refreshes the current page to restore its original styles.
 
 <p align="center">
-  <img src="./.github/assets/web.gif" width="900" alt="Opening a quick site, expanding the address bar, hiding media, and enabling Plain View" />
+  <img src="./.github/assets/web.webp" width="900" alt="Opening a quick site, expanding the address bar, hiding media, and enabling Plain View" />
 </p>
 
 <p align="center"><sub>Web view: expand the address bar → hide media → enable Plain View.</sub></p>

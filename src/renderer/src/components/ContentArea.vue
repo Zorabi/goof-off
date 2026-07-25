@@ -9,6 +9,7 @@ import EpubReader from './EpubReader.vue'
 import PdfReader from './PdfReader.vue'
 import { useBrowser } from '../composables/useBrowser.js'
 import { useFileVisualPrefs } from '../composables/useFileVisualPrefs.js'
+import { useReaderPrefs } from '../composables/useReaderPrefs.js'
 import { useAppState } from '../composables/useAppState.js'
 import { injectTxt } from '../composables/useTxt.js'
 import { injectEpub } from '../composables/useEpub.js'
@@ -23,6 +24,7 @@ const VIRTUAL_THRESHOLD = 1 * 1024 * 1024
 const { state, dispatch } = useAppState()
 const { openSite } = useBrowser()
 const { fileVisualState } = useFileVisualPrefs()
+const { pdfPrefs } = useReaderPrefs()
 const txt = injectTxt()
 const epub = injectEpub()
 const pdf = injectPdf()
@@ -30,6 +32,7 @@ const pdf = injectPdf()
 const isTxt = computed(() => state.content === 'file' && state.fileKind === 'txt')
 const isEpub = computed(() => state.content === 'file' && state.fileKind === 'epub')
 const isPdf = computed(() => state.content === 'file' && state.fileKind === 'pdf')
+const usesInvertedPdfBackground = computed(() => isPdf.value && pdfPrefs.value.invertColors)
 const isNormalFileForm = computed(() => state.content === 'file' && state.form === 'normal')
 const supportsFileVisual = computed(() => isTxt.value || isEpub.value)
 const rendererBodyOpacity = computed(() => {
@@ -90,7 +93,8 @@ function setHomeHistoryTransitioning(value) {
       class="content-main interface-fade-target"
       :class="{
         'is-home-history-transitioning': homeHistoryTransitioning,
-        'is-normal-file-form': isNormalFileForm
+        'is-normal-file-form': isNormalFileForm,
+        'is-pdf-invert-colors': usesInvertedPdfBackground
       }"
       :inert="homeHistoryTransitioning ? '' : null"
       :style="fileVisualStyle"
@@ -151,6 +155,9 @@ function setHomeHistoryTransitioning(value) {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+}
+.content-main.is-pdf-invert-colors {
+  background: #000;
 }
 .content-main:focus {
   outline: none;
