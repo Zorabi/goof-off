@@ -16,6 +16,7 @@ const RENDERER_ALLOWED_EVENTS = new Set([
   'bookmark.refresh_result',
   'bookmark.toggle_result',
   'drag.drop_decision',
+  'epub.hide_images_change',
   'epub.search_error',
   'epub.search_jump',
   'epub.search_panel',
@@ -487,6 +488,12 @@ const EVENT_DATA_SANITIZERS = {
     message: data?.message
       ? replaceSensitiveString(data.message, { maxString: 120 }).value
       : undefined
+  }),
+  'epub.hide_images_change': (data, options) => ({
+    hideImages: Boolean(data?.hideImages),
+    source: data?.source === 'epub-bottom-bar' ? data.source : 'epub-bottom-bar',
+    ok: Boolean(data?.ok),
+    error: data?.error ? sanitizeError(data.error, options) : undefined
   }),
   'epub.search_panel': sanitizeSearchPanel,
   'epub.search_query': sanitizeSearchQuery,

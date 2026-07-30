@@ -1,7 +1,7 @@
 import { app, protocol } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { createWindow, getMainWindow } from './windowManager.js'
-import { registerIpcHandlers } from './ipcHandlers.js'
+import { registerIpcHandlers, createDefaultEpubService } from './ipcHandlers.js'
 import * as webviewManager from './webviewManager.js'
 import * as popoverWindowManager from './popoverWindowManager.js'
 import * as preferencesWindow from './preferencesWindow.js'
@@ -27,10 +27,22 @@ protocol.registerSchemesAsPrivileged([
       corsEnabled: true,
       bypassCSP: true
     }
+  },
+  {
+    scheme: 'goof-off-epub',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      corsEnabled: true,
+      bypassCSP: true
+    }
   }
 ])
 
 const pdfService = createPdfService()
+const epubService = createDefaultEpubService()
 
 function logFatalAndExit(event, error) {
   process.exitCode = 1
@@ -86,18 +98,33 @@ app.whenReady().then(async () => {
     return pdfService.serve(session, range)
   })
 
+  protocol.handle('goof-off-epub', (request) => {
+    const url = new URL(request.url)
+    const fileId = url.hostname
+    const rawSessionToken = url.searchParams.get('sessionToken')
+    if (!/^[1-9]\d*$/.test(rawSessionToken || '')) {
+      return new Response(null, { status: 404 })
+    }
+    const sessionToken = Number(rawSessionToken)
+    if (!Number.isSafeInteger(sessionToken)) return new Response(null, { status: 404 })
+    const session = epubService.resolveSession(fileId, sessionToken)
+    if (!session) return new Response(null, { status: 404 })
+    return epubService.serve(session)
+  })
+
   const mainWindowBootstrap = createMainWindowBootstrap({
     createWindow,
     getMainWindow,
     setupDialogBridge,
     webviewManager,
     pdfService,
+    epubService,
     applySystemVisibilityPrefs,
     getSystemPrefs
   })
 
   await applySystemVisibilityPrefs(getSystemPrefs(), { win: null })
-  registerIpcHandlers({ pdfService })
+  registerIpcHandlers({ pdfService, epubService })
   bossKeyService.init({ openMainWindow: mainWindowBootstrap.openMainWindow })
   mainWindowBootstrap.createAndBootstrapMainWindow({ showWhenReady: true })
 
@@ -113,6 +140,8 @@ app.on('before-quit', () => {
   diagnosticLogger.info('app.before_quit', {}, 'main')
   pdfService.flushPending()
   pdfService.clearSessions()
+  epubService.flushPending()
+  epubService.clearSessions()
   popoverWindowManager.destroyPopover()
   preferencesWindow.destroy()
   flushPending()

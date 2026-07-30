@@ -13,6 +13,8 @@ const LRU_MAX = 200
 
 export function createPdfService() {
   const openSessions = new Map()
+  // 会话代数：与 epubService 相同的竞态防线 —— 过期 token 的 close 不得释放重开后的新会话。
+  let sessionSeq = 0
   let pendingProgress = null
   let maintenanceGeneration = 0
 
@@ -59,14 +61,15 @@ export function createPdfService() {
 
     const fileId = computeFileId(absPath, stat)
     const displayName = basename(absPath, ext)
-    openSessions.set(fileId, { path: absPath, sizeBytes: stat.size })
+    const sessionToken = ++sessionSeq
+    openSessions.set(fileId, { path: absPath, sizeBytes: stat.size, token: sessionToken })
 
     const savedProgress = getProgress(fileId)
 
     return {
       ok: true,
       path: absPath,
-      data: { fileId, displayName, sizeBytes: stat.size, savedProgress }
+      data: { fileId, displayName, sizeBytes: stat.size, sessionToken, savedProgress }
     }
   }
 
@@ -87,7 +90,10 @@ export function createPdfService() {
     return openSessions.get(fileId) || null
   }
 
-  function releaseSession(fileId) {
+  function releaseSession(fileId, sessionToken) {
+    const session = openSessions.get(fileId)
+    if (!session) return
+    if (sessionToken !== undefined && session.token !== sessionToken) return
     openSessions.delete(fileId)
   }
 

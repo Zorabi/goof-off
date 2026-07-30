@@ -11,6 +11,13 @@ const EXT_BY_KIND = { txt: '.txt', epub: '.epub', pdf: '.pdf' }
 export function createHistoryService(store, opts = {}) {
   const now = opts.now || (() => Date.now())
   const id = opts.id || (() => randomUUID())
+  // 仅网页标题落盘走防抖：page-title-updated 在聊天/视频站会高频触发。
+  // 新增、删除等结构变更直写，避免多个应用实例延迟写回旧快照而丢失历史。
+  const persist =
+    opts.persist ||
+    ((key, value, resolveValue) => {
+      store.set(key, resolveValue ? resolveValue(store.get(key)) : value)
+    })
   const pendingWeb = new Map()
   const pendingFiles = new Map()
   const pendingFileTimers = new Map()
@@ -119,6 +126,19 @@ export function createHistoryService(store, opts = {}) {
     store.set('webHistory', dedupeWebItems(items))
   }
 
+  function saveWebTitle(items, updatedItem) {
+    persist('webHistory', dedupeWebItems(items), (latest) => {
+      const current = dedupeWebItems(
+        (Array.isArray(latest) ? latest : []).map(sanitizeWebItem).filter(Boolean)
+      )
+      const target = current.find(
+        (item) => item.key === updatedItem.key && item.id === updatedItem.id
+      )
+      if (target) target.title = updatedItem.title
+      return current
+    })
+  }
+
   function saveFiles(items) {
     store.set('fileHistory', trimAndSort(items))
   }
@@ -176,7 +196,7 @@ export function createHistoryService(store, opts = {}) {
     const target = items.find((item) => item.key === key)
     if (!target) return { ok: false, reason: 'not-found' }
     target.title = typeof title === 'string' && title.trim() ? title : target.title
-    saveWeb(items)
+    saveWebTitle(items, target)
     return { ok: true }
   }
 

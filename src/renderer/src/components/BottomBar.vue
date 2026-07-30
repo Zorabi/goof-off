@@ -49,11 +49,12 @@ const ctrl = injectTxtReaderController()
 const epub = injectEpub()
 const epubCtrl = injectEpubCtrl()
 const pdf = injectPdf()
-const { txtPrefs, epubPrefs, pdfPrefs, setPdfPrefs } = useReaderPrefs()
+const { txtPrefs, epubPrefs, pdfPrefs, setEpubPrefs, setPdfPrefs } = useReaderPrefs()
 const isTxt = computed(() => state.content === 'file' && state.fileKind === 'txt')
 const isEpub = computed(() => state.content === 'file' && state.fileKind === 'epub')
 const isPdf = computed(() => state.content === 'file' && state.fileKind === 'pdf')
 const isMini = computed(() => state.form === 'mini')
+const epubImagesPending = ref(false)
 const bottomMode = computed(() => resolveReaderBottomMode(state))
 const webControlsVisible = computed(() => state.content === 'web')
 const contentToggleDisabled = computed(() => !transparencyPrefs.value.windowEnabled)
@@ -205,6 +206,24 @@ function togglePlainView() {
 
 function toggleEpubMode() {
   epubCtrl.mode.value = epubCtrl.mode.value === 'scroll' ? 'paginate' : 'scroll'
+}
+
+async function toggleEpubImages() {
+  if (epubImagesPending.value) return
+  const hideImages = !epubPrefs.value.hideImages
+  epubImagesPending.value = true
+  try {
+    await setEpubPrefs({ hideImages })
+  } catch (error) {
+    logDiagnosticError('epub.hide_images_change', error, {
+      hideImages,
+      source: 'epub-bottom-bar',
+      ok: false
+    })
+    pushStatus('EPUB 图片设置未保存')
+  } finally {
+    epubImagesPending.value = false
+  }
 }
 
 function toggleEpubAutoTurn() {
@@ -644,6 +663,16 @@ onBeforeUnmount(() => {
           aria-controls="popover-epub-typography"
           :aria-expanded="String(epubCtrl.showTypography.value)"
           @click="epubCtrl.toggleTypography()"
+        />
+        <IconButton
+          v-if="isEpub && !isMini"
+          icon="hide-media"
+          aria-label="隐藏图片"
+          title="隐藏图片"
+          :active="epubPrefs.hideImages"
+          :aria-pressed="String(epubPrefs.hideImages)"
+          :disabled="epubImagesPending"
+          @click="toggleEpubImages"
         />
         <IconButton
           v-if="isEpub && !isMini"

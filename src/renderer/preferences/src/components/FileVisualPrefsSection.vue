@@ -125,7 +125,7 @@ onUnmounted(() => {
     :aria-busy="readiness === 'loading' ? 'true' : undefined"
   >
     <div class="prefs-secthead">文件阅读背景</div>
-    <div class="prefs-sectdesc">TXT / EPUB 生效；PDF 不应用背景与文字颜色</div>
+    <div class="prefs-sectdesc">TXT / EPUB 生效；PDF 使用独立自定义配色</div>
     <div v-if="status" class="prefs-line__hint is-danger">{{ status }}</div>
 
     <div class="prefs-line">

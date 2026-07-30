@@ -53,7 +53,7 @@ function formatPercent(value) {
     <Switch
       class="pdf-invert-toggle"
       :model-value="invertColors"
-      label="黑底白字"
+      label="自定义配色"
       @update:model-value="emit('set-invert-colors', $event)"
     />
   </div>

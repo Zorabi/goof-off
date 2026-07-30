@@ -160,6 +160,19 @@ const STEALTH_ACTIVITY_BY_MOUSE_TYPE = {
   mouseDown: 'pointerdown'
 }
 
+// mousemove 活动信号只用于重置自动隐藏计时，60-120Hz 逐条转发 IPC 纯属浪费；
+// leading 节流即可，wheel/pointerdown 保持直发（低频且语义即时）。
+const STEALTH_MOUSE_MOVE_ACTIVITY_THROTTLE_MS = 100
+let lastStealthMouseMoveActivityAt = 0
+
+// 热区判定几何缓存：mousemove 每次都 getContentBounds + 构建完整 chrome 布局代价过高，
+// 只在几何真正变化（layout / resize / appState 变更）时失效重算。
+let hotZoneGeometry = null
+
+function invalidateHotZoneGeometry() {
+  hotZoneGeometry = null
+}
+
 function resetPageScopedCssKeys() {
   opacityCssKey = null
   opacityCssValue = null
@@ -346,6 +359,17 @@ function resetWebHotZoneState(options) {
   sendWebHotZoneState({ top: false, bottom: false }, options)
 }
 
+function resolveHotZoneGeometry(mainWindow) {
+  if (hotZoneGeometry) return hotZoneGeometry
+  const windowSize = mainWindow.getContentBounds()
+  const layoutState = createWebContentsLayout(windowSize)
+  hotZoneGeometry = {
+    contentY: layoutState.webContentsRect.y,
+    windowHeight: windowSize.height
+  }
+  return hotZoneGeometry
+}
+
 function updateWebHotZoneBridge(input) {
   if (input?.type === 'mouseLeave') {
     resetWebHotZoneState({ force: true })
@@ -360,14 +384,13 @@ function updateWebHotZoneBridge(input) {
   if (!Number.isFinite(y)) return
   const mainWindow = getMainWindow()
   if (!mainWindow || mainWindow.isDestroyed()) return
-  const windowSize = mainWindow.getContentBounds()
-  const layoutState = createWebContentsLayout(windowSize)
-  const windowY = layoutState.webContentsRect.y + y
+  const geometry = resolveHotZoneGeometry(mainWindow)
+  const windowY = geometry.contentY + y
   sendWebHotZoneState({
     top: windowY >= 0 && windowY < CHROME_HOT_ZONE_HEIGHT,
     bottom:
-      windowY >= Math.max(0, windowSize.height - CHROME_HOT_ZONE_HEIGHT) &&
-      windowY < windowSize.height
+      windowY >= Math.max(0, geometry.windowHeight - CHROME_HOT_ZONE_HEIGHT) &&
+      windowY < geometry.windowHeight
   })
 }
 
@@ -458,6 +481,7 @@ function maybeScaleWheelEvent(event, input) {
 export function updateAppStateForRuntime(partial = {}) {
   const safePartial = partial && typeof partial === 'object' ? partial : {}
   runtimeAppState = { ...getRuntimeAppState(), ...safePartial }
+  invalidateHotZoneGeometry()
   if (runtimeAppState.content !== 'web' || runtimeAppState.form !== 'normal') {
     resetWebHotZoneState()
   }
@@ -526,6 +550,11 @@ export function setStealthBodyActivityBridgeEnabled(enabled) {
 
 function sendStealthBodyActivity(kind) {
   if (!stealthBodyActivityBridgeEnabled) return
+  if (kind === 'mousemove') {
+    const now = Date.now()
+    if (now - lastStealthMouseMoveActivityAt < STEALTH_MOUSE_MOVE_ACTIVITY_THROTTLE_MS) return
+    lastStealthMouseMoveActivityAt = now
+  }
   const mainWindow = getMainWindow()
   if (!mainWindow || mainWindow.isDestroyed()) return
   mainWindow.webContents.send('stealth:auto-hide-body-activity', { kind })
@@ -557,6 +586,7 @@ function bindViewToMainWindow(mainWindow) {
   lastNavStateJSON = ''
   mainWindow.contentView.addChildView(view)
   resizeHandler = () => {
+    invalidateHotZoneGeometry()
     clearTimeout(resizeTimer)
     resizeTimer = setTimeout(layout, 30)
   }
@@ -1349,9 +1379,14 @@ function layout() {
   if (!view || !mainWindow) return
   if (!visibleIntent || !sessionReady) {
     view.setBounds({ x: 0, y: 0, width: 0, height: 0 })
+    invalidateHotZoneGeometry()
     return
   }
   const bounds = mainWindow.getContentBounds()
   const layoutState = createWebContentsLayout(bounds)
   view.setBounds(layoutState.webContentsRect)
+  hotZoneGeometry = {
+    contentY: layoutState.webContentsRect.y,
+    windowHeight: bounds.height
+  }
 }

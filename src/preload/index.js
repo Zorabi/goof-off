@@ -250,7 +250,7 @@ const api = {
     return () => ipcRenderer.removeListener('txt-prefs:changed', handler)
   },
   onEpubPrefsChange: (callback) => {
-    const handler = (_e, prefs) => callback(prefs)
+    const handler = (_e, prefs, options) => callback(prefs, options)
     ipcRenderer.on('epub-prefs:changed', handler)
     return () => ipcRenderer.removeListener('epub-prefs:changed', handler)
   },
@@ -294,11 +294,15 @@ const api = {
     return ipcRenderer.invoke('epub:open', path)
   },
   openEpubDialog: () => ipcRenderer.invoke('epub:open-dialog'),
+  epubClose: (fileId, sessionToken) => ipcRenderer.invoke('epub:close', fileId, sessionToken),
   epubGetProgress: (fileId) => ipcRenderer.invoke('epub:get-progress', fileId),
   epubSaveProgress: (fileId, patch) => ipcRenderer.invoke('epub:save-progress', fileId, patch),
   epubFlushProgress: (fileId, patch) => ipcRenderer.invoke('epub:flush-progress', fileId, patch),
   epubGetPrefs: () => ipcRenderer.invoke('epub:get-prefs'),
   epubSetPrefs: (patch) => ipcRenderer.invoke('epub:set-prefs', patch),
+  epubGetLocations: (fileId) => ipcRenderer.invoke('epub:get-locations', fileId),
+  epubSaveLocations: (fileId, locations) =>
+    ipcRenderer.invoke('epub:save-locations', fileId, locations),
   onEpubOpenRequest: (callback) => {
     const handler = () => callback()
     ipcRenderer.on('epub:open-request', handler)
@@ -311,7 +315,7 @@ const api = {
     return ipcRenderer.invoke('pdf:open', path)
   },
   openPdfDialog: () => ipcRenderer.invoke('pdf:open-dialog'),
-  pdfClose: (fileId) => ipcRenderer.invoke('pdf:close', fileId),
+  pdfClose: (fileId, sessionToken) => ipcRenderer.invoke('pdf:close', fileId, sessionToken),
   pdfGetProgress: (fileId) => ipcRenderer.invoke('pdf:get-progress', fileId),
   pdfSaveProgress: (fileId, patch) => ipcRenderer.invoke('pdf:save-progress', fileId, patch),
   pdfFlushProgress: (fileId, patch) => ipcRenderer.invoke('pdf:flush-progress', fileId, patch),

@@ -3,6 +3,7 @@ import {
   ref,
   computed,
   onMounted,
+  onBeforeUnmount,
   onUnmounted,
   onBeforeUpdate,
   onUpdated,
@@ -290,9 +291,21 @@ function scrollToOffset(charOffset, ratio = 0, options = {}) {
 let scrollRaf = null
 let savePosThrottle = null
 
+function flushPendingScrollSync() {
+  if (scrollRaf === null) return
+  cancelAnimationFrame(scrollRaf)
+  scrollRaf = null
+  if (!containerRef.value) return
+  scrollTop.value = containerRef.value.scrollTop
+  if (!isRestoring.value) {
+    updateOffsetFromRendered()
+    updatePageInfo()
+  }
+}
+
 function onScroll() {
   if (!containerRef.value) return
-  if (scrollRaf) return
+  if (scrollRaf !== null) return
   scrollRaf = requestAnimationFrame(() => {
     scrollRaf = null
     if (!containerRef.value) return
@@ -381,6 +394,7 @@ onUpdated(() => {
 function saveMountedPosition() {
   if (shouldDiscardMaintenanceProgress()) return
   if (txt.fileId.value !== mountedFileId) return
+  flushPendingScrollSync()
   txt.savePosition()
 }
 
@@ -475,20 +489,32 @@ onMounted(async () => {
   containerRO.observe(containerRef.value)
 
   ctrl.register({ nextPage, prevPage, goToPage, jumpToPercent, scrollToOffset })
-  unregisterActiveFlush = registerActiveReaderFlush(txt.flushCurrentProgress)
+  unregisterActiveFlush = registerActiveReaderFlush(() => {
+    flushPendingScrollSync()
+    return txt.flushCurrentProgress()
+  })
   document.addEventListener('keydown', onKeydown)
 
   await restoreAndCalibrate()
   observeNewParas()
 })
 
+onBeforeUnmount(() => {
+  saveMountedPosition()
+})
+
 onUnmounted(() => {
   document.removeEventListener('keydown', onKeydown)
   unregisterActiveFlush?.()
   ctrl.unregister()
-  saveMountedPosition()
-  if (scrollRaf) cancelAnimationFrame(scrollRaf)
-  if (savePosThrottle) clearTimeout(savePosThrottle)
+  if (scrollRaf !== null) {
+    cancelAnimationFrame(scrollRaf)
+    scrollRaf = null
+  }
+  if (savePosThrottle) {
+    clearTimeout(savePosThrottle)
+    savePosThrottle = null
+  }
   if (paraRO) paraRO.disconnect()
   if (containerRO) containerRO.disconnect()
 })

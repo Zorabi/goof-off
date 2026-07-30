@@ -9,6 +9,11 @@ import {
   sanitizeTransparencyPrefsPatch
 } from '../shared/transparencyPrefs.js'
 import {
+  DEFAULT_PDF_COLOR_PREFS,
+  normalizePdfColorPrefs,
+  sanitizePdfColorPrefsPatch
+} from '../shared/pdfColorPrefs.js'
+import {
   getDefaultBossKeys,
   getDefaultWebPrefs,
   getRuntimePlatformPolicy,
@@ -58,13 +63,15 @@ export const DEFAULT_EPUB_PREFS = Object.freeze({
   lineHeight: 1.7,
   autoTurnSec: 30,
   fontFamily: 'default',
+  hideImages: true,
   pageKeys: { next: 'Space', prev: 'Shift+Space' }
 })
 
 export const DEFAULT_PDF_PREFS = Object.freeze({
   defaultZoom: 'fit-width',
   pageDisplay: 'page',
-  invertColors: false
+  invertColors: false,
+  ...DEFAULT_PDF_COLOR_PREFS
 })
 
 export const DEFAULT_STARTUP_PREFS = Object.freeze({
@@ -228,6 +235,8 @@ export function normalizeEpubPrefs(value, policy) {
       ? source.autoTurnSec
       : DEFAULT_EPUB_PREFS.autoTurnSec,
     fontFamily: normalizeReaderFontFamily(source.fontFamily),
+    hideImages:
+      typeof source.hideImages === 'boolean' ? source.hideImages : DEFAULT_EPUB_PREFS.hideImages,
     pageKeys: normalizeStoredPageKeys(source.pageKeys, DEFAULT_EPUB_PREFS.pageKeys, policy)
   }
 }
@@ -246,6 +255,9 @@ export function sanitizeEpubPrefsPatch(patch, current = DEFAULT_EPUB_PREFS, poli
   }
   if ('fontFamily' in patch && READER_FONT_FAMILIES.has(patch.fontFamily)) {
     out.fontFamily = patch.fontFamily
+  }
+  if ('hideImages' in patch && typeof patch.hideImages === 'boolean') {
+    out.hideImages = patch.hideImages
   }
   if ('pageKeys' in patch) {
     const pageKeys = sanitizePageKeysPatch(
@@ -272,7 +284,8 @@ export function normalizePdfPrefs(value) {
     invertColors:
       typeof source.invertColors === 'boolean'
         ? source.invertColors
-        : DEFAULT_PDF_PREFS.invertColors
+        : DEFAULT_PDF_PREFS.invertColors,
+    ...normalizePdfColorPrefs(source)
   }
 }
 
@@ -291,6 +304,7 @@ export function sanitizePdfPrefsPatch(patch) {
   if ('invertColors' in patch && typeof patch.invertColors === 'boolean') {
     out.invertColors = patch.invertColors
   }
+  Object.assign(out, sanitizePdfColorPrefsPatch(patch))
   return out
 }
 

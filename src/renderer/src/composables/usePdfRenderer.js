@@ -110,16 +110,21 @@ export function usePdfRenderer(pdfDoc, pageCountRef, zoomRef, containerRef) {
   const renderedPages = ref(new Set())
 
   let renderTasks = new Map()
+  let renderRequests = new Map()
   let rafId = null
   let collectCancelled = false
 
   // 两阶段采集（spec §3.1.1）：阶段 1 用第 1 页尺寸快速填充占位，阶段 2 后台增量真实采集。
-  async function collectBaseSizes() {
+  async function collectBaseSizes({ priorityPage: requestedPriorityPage } = {}) {
     if (!pdfDoc.value) return
     collectCancelled = false
     resolvedBaseSizePageCount.value = 0
     const doc = pdfDoc.value
     const count = pageCountRef.value
+    const priorityPage =
+      Number.isInteger(requestedPriorityPage) && count > 0
+        ? Math.max(1, Math.min(requestedPriorityPage, count))
+        : null
 
     // 阶段 1：首页立即采集 + 临时占位
     let firstPage
@@ -139,18 +144,34 @@ export function usePdfRenderer(pdfDoc, pageCountRef, zoomRef, containerRef) {
     baseSizes.value = Array.from({ length: count }, () => ({ ...tempSize }))
     resolvedBaseSizePageCount.value = count > 0 ? 1 : 0
     recomputeOffsets()
+    const pendingBaseSizes = [...baseSizes.value]
 
-    // 阶段 2：后台增量真实采集（2-N 页），不阻塞调用方
+    // 阶段 2：后台增量真实采集（2-N 页），不阻塞调用方。
+    // recomputeOffsets 会整体替换 pageOffsets 触发全模板重渲染，逐页调用在大 PDF 上
+    // 是持续掉帧源，因此按批合并；占位尺寸最多滞后一批，采集结束强制收尾。
     Promise.resolve().then(async () => {
+      const PUBLISH_BATCH = 20
+      let sincePublish = 0
+      let pendingResolvedPageCount = resolvedBaseSizePageCount.value
+      const maybePublish = (pageNum, force) => {
+        sincePublish++
+        if (force || pageNum === priorityPage || sincePublish >= PUBLISH_BATCH) {
+          baseSizes.value = [...pendingBaseSizes]
+          recomputeOffsets()
+          resolvedBaseSizePageCount.value = pendingResolvedPageCount
+          sincePublish = 0
+        }
+      }
       for (let i = 2; i <= count; i++) {
         if (collectCancelled || pdfDoc.value !== doc) return
         let page
         try {
           page = await doc.getPage(i)
         } catch (err) {
+          if (collectCancelled || pdfDoc.value !== doc) return
           console.error(`页面 ${i} 元数据采集失败:`, err)
-          resolvedBaseSizePageCount.value = Math.max(resolvedBaseSizePageCount.value, i)
-          recomputeOffsets()
+          pendingResolvedPageCount = Math.max(pendingResolvedPageCount, i)
+          maybePublish(i, i === count)
           continue
         }
         if (collectCancelled || pdfDoc.value !== doc) {
@@ -159,9 +180,9 @@ export function usePdfRenderer(pdfDoc, pageCountRef, zoomRef, containerRef) {
         }
         const vp = page.getViewport({ scale: 1 })
         page.cleanup()
-        baseSizes.value[i - 1] = { w: vp.width, h: vp.height }
-        resolvedBaseSizePageCount.value = Math.max(resolvedBaseSizePageCount.value, i)
-        recomputeOffsets()
+        pendingBaseSizes[i - 1] = { w: vp.width, h: vp.height }
+        pendingResolvedPageCount = Math.max(pendingResolvedPageCount, i)
+        maybePublish(i, i === count)
       }
     })
   }
@@ -217,39 +238,56 @@ export function usePdfRenderer(pdfDoc, pageCountRef, zoomRef, containerRef) {
   }
 
   async function renderPage(pageNum, canvas) {
-    if (!pdfDoc.value) return
-    const page = await pdfDoc.value.getPage(pageNum)
-    const scale = effectiveScale()
-    const dpr = window.devicePixelRatio || 1
+    const doc = pdfDoc.value
+    if (!doc) return
+    const request = {}
+    renderRequests.set(pageNum, request)
 
-    const base = page.getViewport({ scale: 1 })
-
-    const targetW = base.width * scale * dpr
-    const targetH = base.height * scale * dpr
-    const clampFactor = Math.min(1, MAX_DIM / Math.max(targetW, targetH))
-    const renderScale = scale * dpr * clampFactor
-
-    const viewport = page.getViewport({ scale: renderScale })
-
-    canvas.width = Math.floor(viewport.width)
-    canvas.height = Math.floor(viewport.height)
-    canvas.style.width = `${Math.floor(base.width * scale)}px`
-    canvas.style.height = `${Math.floor(base.height * scale)}px`
-
-    const ctx = canvas.getContext('2d')
-    const renderTask = page.render({ canvasContext: ctx, viewport })
-
-    renderTasks.set(pageNum, renderTask)
+    let page
     try {
+      page = await doc.getPage(pageNum)
+    } catch (e) {
+      if (renderRequests.get(pageNum) !== request) return
+      renderRequests.delete(pageNum)
+      throw e
+    }
+
+    if (renderRequests.get(pageNum) !== request || pdfDoc.value !== doc) {
+      if (renderRequests.get(pageNum) === request) renderRequests.delete(pageNum)
+      page.cleanup()
+      return
+    }
+
+    let renderTask
+    try {
+      const scale = effectiveScale()
+      const dpr = window.devicePixelRatio || 1
+      const base = page.getViewport({ scale: 1 })
+      const targetW = base.width * scale * dpr
+      const targetH = base.height * scale * dpr
+      const clampFactor = Math.min(1, MAX_DIM / Math.max(targetW, targetH))
+      const renderScale = scale * dpr * clampFactor
+      const viewport = page.getViewport({ scale: renderScale })
+
+      canvas.width = Math.floor(viewport.width)
+      canvas.height = Math.floor(viewport.height)
+      canvas.style.width = `${Math.floor(base.width * scale)}px`
+      canvas.style.height = `${Math.floor(base.height * scale)}px`
+
+      const ctx = canvas.getContext('2d')
+      renderTask = page.render({ canvasContext: ctx, viewport })
+      renderTasks.set(pageNum, renderTask)
       await renderTask.promise
     } catch (e) {
       if (e?.name !== 'RenderingCancelledException') throw e
     } finally {
-      renderTasks.delete(pageNum)
+      if (renderTasks.get(pageNum) === renderTask) renderTasks.delete(pageNum)
+      if (renderRequests.get(pageNum) === request) renderRequests.delete(pageNum)
     }
   }
 
   function cancelPage(pageNum) {
+    renderRequests.delete(pageNum)
     const task = renderTasks.get(pageNum)
     if (task) {
       task.cancel()
@@ -258,6 +296,7 @@ export function usePdfRenderer(pdfDoc, pageCountRef, zoomRef, containerRef) {
   }
 
   function cancelAll() {
+    renderRequests.clear()
     for (const [, task] of renderTasks) {
       task.cancel()
     }

@@ -14,12 +14,14 @@ import { useAppState } from '../composables/useAppState.js'
 import { injectTxt } from '../composables/useTxt.js'
 import { injectEpub } from '../composables/useEpub.js'
 import { injectPdf } from '../composables/usePdf.js'
+import { normalizePdfColorPrefs } from '../../../shared/pdfColorPrefs.js'
 
 const props = defineProps({
   opacity: { type: Number, default: 1 },
   stealthOverlay: { type: Boolean, default: false }
 })
 
+// 超过阈值走虚拟化阅读器，避免大文件全量 DOM 的首排与搜索重排开销。
 const VIRTUAL_THRESHOLD = 1 * 1024 * 1024
 const { state, dispatch } = useAppState()
 const { openSite } = useBrowser()
@@ -32,7 +34,8 @@ const pdf = injectPdf()
 const isTxt = computed(() => state.content === 'file' && state.fileKind === 'txt')
 const isEpub = computed(() => state.content === 'file' && state.fileKind === 'epub')
 const isPdf = computed(() => state.content === 'file' && state.fileKind === 'pdf')
-const usesInvertedPdfBackground = computed(() => isPdf.value && pdfPrefs.value.invertColors)
+const usesPdfCustomColors = computed(() => isPdf.value && pdfPrefs.value.invertColors)
+const pdfColors = computed(() => normalizePdfColorPrefs(pdfPrefs.value))
 const isNormalFileForm = computed(() => state.content === 'file' && state.form === 'normal')
 const supportsFileVisual = computed(() => isTxt.value || isEpub.value)
 const rendererBodyOpacity = computed(() => {
@@ -41,6 +44,9 @@ const rendererBodyOpacity = computed(() => {
 })
 const fileVisualStyle = computed(() => {
   const base = { opacity: rendererBodyOpacity.value }
+  if (isPdf.value) {
+    return { ...base, '--pdf-background-color': pdfColors.value.backgroundColor }
+  }
   if (!supportsFileVisual.value) return base
   const visual = fileVisualState.value
   return {
@@ -52,7 +58,11 @@ const fileVisualStyle = computed(() => {
 })
 const useVirtual = computed(() => isTxt.value && (txt?.sizeBytes.value || 0) > VIRTUAL_THRESHOLD)
 const txtReaderKey = computed(() => txt?.fileId.value || 'txt-empty')
-const epubReaderKey = computed(() => epub?.fileId.value || 'epub-empty')
+// 带上加载序号：EpubReader 的 rendition 建在 onMounted，重开同一本书时 fileId 不变，
+// 只用 fileId 作 key 不会重挂载，正文会永久空白。
+const epubReaderKey = computed(
+  () => `${epub?.fileId.value || 'epub-empty'}#${epub?.loadInstance.value ?? 0}`
+)
 const pdfReaderKey = computed(() => pdf?.fileId.value || 'pdf-empty')
 const pdfHasAcceptedDocument = computed(() => Boolean(pdf?.fileId.value && pdf?.doc.value))
 const isHomeHistoryContent = computed(() => state.content === 'home' || state.content === 'history')
@@ -94,7 +104,7 @@ function setHomeHistoryTransitioning(value) {
       :class="{
         'is-home-history-transitioning': homeHistoryTransitioning,
         'is-normal-file-form': isNormalFileForm,
-        'is-pdf-invert-colors': usesInvertedPdfBackground
+        'is-pdf-custom-colors': usesPdfCustomColors
       }"
       :inert="homeHistoryTransitioning ? '' : null"
       :style="fileVisualStyle"
@@ -156,8 +166,8 @@ function setHomeHistoryTransitioning(value) {
   min-height: 0;
   overflow: hidden;
 }
-.content-main.is-pdf-invert-colors {
-  background: #000;
+.content-main.is-pdf-custom-colors {
+  background: var(--pdf-background-color);
 }
 .content-main:focus {
   outline: none;

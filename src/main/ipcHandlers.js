@@ -1,5 +1,5 @@
 import fsp from 'node:fs/promises'
-import { extname } from 'node:path'
+import { extname, join } from 'node:path'
 import { app, dialog, ipcMain, nativeTheme, session } from 'electron'
 import {
   getMainWindow,
@@ -68,7 +68,8 @@ const MAIN_ALLOWED_EPUB_PREFS = [
   'lineHeight',
   'fontFamily',
   'defaultMode',
-  'autoTurnSec'
+  'autoTurnSec',
+  'hideImages'
 ]
 const MAIN_ALLOWED_PDF_PREFS = ['invertColors']
 
@@ -96,13 +97,24 @@ function touchesAnyConfigRoot(keyOrObject, roots) {
   return Object.keys(keyOrObject).some((key) => keyTouchesAnyConfigRoot(key, roots))
 }
 
+// epubService 的默认构造：index.js（协议注册方）与本模块共用，保证单实例语义。
+export function createDefaultEpubService() {
+  let locationsDir = null
+  try {
+    locationsDir = join(app.getPath('userData'), 'epub-locations')
+  } catch {
+    locationsDir = null
+  }
+  return createEpubService(store, persistDebounced, { locationsDir })
+}
+
 export function registerIpcHandlers({
   pdfService,
+  epubService = createDefaultEpubService(),
   diagnosticLogger = defaultDiagnosticLogger
 } = {}) {
   const platformPolicy = getRuntimePlatformPolicy()
-  const historyService = createHistoryService(store)
-  const epubService = createEpubService(store, persistDebounced)
+  const historyService = createHistoryService(store, { persist: persistDebounced })
   let managedPreferenceTransactionTail = Promise.resolve()
   webviewManager.setHistoryService(historyService)
 
@@ -277,7 +289,8 @@ export function registerIpcHandlers({
     const query = typeof payload.query === 'string' ? payload.query : ''
     const limit = Math.min(5, Math.max(0, Number(payload.limit) || 5))
     const startedAt = Date.now()
-    await diagnosticLogger.event(
+    // 日志写链是串行的，await 会把落盘延迟叠进每次按键的联想响应，改为 fire-and-forget
+    void diagnosticLogger.event(
       'info',
       'address.suggestions_request',
       { queryLength: query.length, limit },
@@ -285,7 +298,7 @@ export function registerIpcHandlers({
     )
     try {
       const result = getAddressSuggestions({ query, limit, historyService, sitesService })
-      await diagnosticLogger.event(
+      void diagnosticLogger.event(
         'info',
         'address.suggestions_result',
         {
@@ -299,7 +312,7 @@ export function registerIpcHandlers({
       )
       return { ok: true, items: result.items }
     } catch (error) {
-      await diagnosticLogger.event(
+      void diagnosticLogger.event(
         'warn',
         'address.suggestions_result',
         { ok: false, reason: error?.reason || 'failed', durationMs: Date.now() - startedAt },
@@ -817,7 +830,7 @@ export function registerIpcHandlers({
     sendToWindows('web-prefs:changed', prefs.webPrefs)
     sendToWindows('site-web-prefs:changed', webviewManager.getCurrentSiteWebPrefs())
     sendToWindows('txt-prefs:changed', prefs.txtPrefs)
-    sendToWindows('epub-prefs:changed', prefs.epubPrefs)
+    sendToWindows('epub-prefs:changed', prefs.epubPrefs, { replaceRuntime: true })
     sendToWindows('pdf-prefs:changed', prefs.pdfPrefs, { replaceRuntime: true })
     sendToWindows('file-visual-prefs:changed', prefs.fileVisualPrefs)
     sendToWindows('transparency-prefs:changed', prefs.transparencyPrefs)
@@ -1383,7 +1396,6 @@ export function registerIpcHandlers({
           )
       if (!allowedPatch || Object.keys(allowedPatch).length === 0) return current
       const next = txtService.setPrefs(allowedPatch)
-      flushStorePending()
       sendToWindows('txt-prefs:changed', next)
       return next
     })
@@ -1399,7 +1411,10 @@ export function registerIpcHandlers({
     const result = await epubService.open(filePath)
     if (!result.ok) return result
     const pending = historyService.beginPendingFile({ path: result.path, kind: 'epub' })
-    if (!pending.ok) return { ok: false, reason: pending.reason, message: '文件不可用' }
+    if (!pending.ok) {
+      epubService.releaseSession(result.data.fileId, result.data.sessionToken)
+      return { ok: false, reason: pending.reason, message: '文件不可用' }
+    }
     return { ...result, historyToken: pending.token }
   }
 
@@ -1408,8 +1423,14 @@ export function registerIpcHandlers({
     const result = await epubService.openDialog()
     if (!result.ok) return result
     const pending = historyService.beginPendingFile({ path: result.path, kind: 'epub' })
-    if (!pending.ok) return { ok: false, reason: pending.reason, message: '文件不可用' }
+    if (!pending.ok) {
+      epubService.releaseSession(result.data.fileId, result.data.sessionToken)
+      return { ok: false, reason: pending.reason, message: '文件不可用' }
+    }
     return { ...result, historyToken: pending.token }
+  })
+  ipcMain.handle('epub:close', (_e, fileId, sessionToken) => {
+    epubService.releaseSession(fileId, sessionToken)
   })
   ipcMain.handle('epub:get-progress', (_e, fileId) => epubService.getProgress(fileId))
   ipcMain.handle('epub:save-progress', (_e, fileId, patch) => {
@@ -1422,6 +1443,10 @@ export function registerIpcHandlers({
     flushStorePending()
     return true
   })
+  ipcMain.handle('epub:get-locations', (_e, fileId) => epubService.getLocations(fileId))
+  ipcMain.handle('epub:save-locations', (_e, fileId, locations) =>
+    epubService.saveLocations(fileId, locations)
+  )
   ipcMain.handle('epub:get-prefs', () => epubService.getPrefs())
   ipcMain.handle('epub:set-prefs', (e, patch) => {
     const fromMain = isMainSender(e.sender)
@@ -1449,7 +1474,7 @@ export function registerIpcHandlers({
     if (!result.ok) return result
     const pending = historyService.beginPendingFile({ path: result.path, kind: 'pdf' })
     if (!pending.ok) {
-      pdfService.releaseSession(result.data.fileId)
+      pdfService.releaseSession(result.data.fileId, result.data.sessionToken)
       return { ok: false, reason: pending.reason, message: '文件不可用' }
     }
     return { ...result, historyToken: pending.token }
@@ -1497,13 +1522,13 @@ export function registerIpcHandlers({
     if (!result.ok) return result
     const pending = historyService.beginPendingFile({ path: result.path, kind: 'pdf' })
     if (!pending.ok) {
-      pdfService.releaseSession(result.data.fileId)
+      pdfService.releaseSession(result.data.fileId, result.data.sessionToken)
       return { ok: false, reason: pending.reason, message: '文件不可用' }
     }
     return { ...result, historyToken: pending.token }
   })
-  ipcMain.handle('pdf:close', (_e, fileId) => {
-    pdfService.releaseSession(fileId)
+  ipcMain.handle('pdf:close', (_e, fileId, sessionToken) => {
+    pdfService.releaseSession(fileId, sessionToken)
   })
   ipcMain.handle('pdf:get-progress', (_e, fileId) => pdfService.getProgress(fileId))
   ipcMain.handle('pdf:save-progress', (_e, fileId, patch) => {
@@ -1533,7 +1558,6 @@ export function registerIpcHandlers({
       const cleanPatch = sanitizePdfPrefsPatch(allowedPatch)
       if (Object.keys(cleanPatch).length === 0) return current
       const next = pdfService.setPrefs(cleanPatch)
-      flushStorePending()
       sendToWindows('pdf-prefs:changed', next)
       return next
     })

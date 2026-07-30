@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted, watch, nextTick, toRaw } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount, onUnmounted, watch, nextTick, toRaw } from 'vue'
 import { injectPdf } from '../composables/usePdf.js'
 import { usePdfRenderer } from '../composables/usePdfRenderer.js'
 import { usePdfZoom } from '../composables/usePdfZoom.js'
@@ -9,6 +9,8 @@ import { useAppState } from '../composables/useAppState.js'
 import { registerActiveReaderFlush } from '../composables/useActiveReaderFlush.js'
 import { shouldDiscardMaintenanceProgress } from '../composables/useMaintenanceReset.js'
 import { useReaderPrefs } from '../composables/useReaderPrefs.js'
+import { createPdfDuotoneFilterId } from '../composables/pdfDuotoneFilterId.js'
+import { createPdfDuotoneMatrix, normalizePdfColorPrefs } from '../../../shared/pdfColorPrefs.js'
 
 const { dispatch } = useAppState()
 const pdf = injectPdf()
@@ -17,8 +19,12 @@ const containerRef = ref(null)
 const innerRef = ref(null)
 const canvasRefs = ref({})
 const failedPages = ref(new Set())
+const pdfDuotoneFilterId = createPdfDuotoneFilterId()
+const pdfDuotoneColors = computed(() => normalizePdfColorPrefs(pdfPrefs.value))
+const pdfDuotoneMatrix = computed(() => createPdfDuotoneMatrix(pdfDuotoneColors.value))
 
 const mountedFileId = pdf.fileId.value
+const mountedSessionToken = pdf.sessionToken?.value
 const mountedDoc = pdf.doc.value
 
 function isMountedSessionCurrent() {
@@ -41,6 +47,12 @@ usePdfKeyboard(onKeyboardPdfZoomStep, onKeyboardPdfZoomReset)
 
 const isDragging = ref(false)
 const cursorStyle = ref('default')
+const pdfReaderStyle = computed(() => ({
+  cursor: cursorStyle.value,
+  '--pdf-background-color': pdfDuotoneColors.value.backgroundColor,
+  '--pdf-text-color': pdfDuotoneColors.value.textColor,
+  '--pdf-duotone-filter': `url(#${pdfDuotoneFilterId})`
+}))
 let dragStart = { x: 0, y: 0, scrollLeft: 0, scrollTop: 0 }
 
 let resizeObserver = null
@@ -178,7 +190,11 @@ onMounted(async () => {
   unregisterActiveFlush = registerActiveReaderFlush(pdf.flushCurrentProgress)
 
   try {
-    await renderer.collectBaseSizes()
+    await renderer.collectBaseSizes({
+      priorityPage: pendingRestoreAnchor.value
+        ? restoreAnchorPage(pendingRestoreAnchor.value)
+        : null
+    })
     await nextTick()
   } catch (err) {
     if (!isMountedSessionCurrent()) return
@@ -236,16 +252,7 @@ onMounted(async () => {
           renderer.updateCurrentPage()
           syncPdfRuntimeProgress()
         }
-        renderer.cancelAll()
-        for (const pageNum of renderer.renderedPages.value) {
-          const canvas = canvasRefs.value[pageNum]
-          if (canvas) {
-            canvas.width = 0
-            canvas.height = 0
-          }
-        }
-        renderer.renderedPages.value = new Set()
-        failedPages.value = new Set()
+        invalidateRenderedPages()
         scheduleRenderPool()
       } else if (
         horizontalAnchor?.revision === horizontalRestoreRevision &&
@@ -473,10 +480,16 @@ onMounted(() => {
   containerRef.value.addEventListener('wheel', pdfZoom.onWheel, { passive: false })
 })
 
-onUnmounted(() => {
+// Vue 在 unmounted 钩子前已置空模板 ref，computeInPageRatio 会因 containerRef
+// 为 null 恒返 0，把防抖里存好的正确页内位置覆盖成页顶；保存必须在
+// beforeUnmount（ref 仍存活）完成。与 TxtReader 同一处理。
+onBeforeUnmount(() => {
   if (!shouldDiscardMaintenanceProgress()) {
     window.api.pdfFlushProgress(mountedFileId, collectCurrentProgress())
   }
+})
+
+onUnmounted(() => {
   unregisterActiveFlush?.()
   unregisterProgressCollector?.()
   renderer.cleanup()
@@ -484,7 +497,8 @@ onUnmounted(() => {
     mountedDoc.destroy()
     pdf.doc.value = null
   }
-  window.api.pdfClose(mountedFileId)
+  // 定向关闭本阅读器挂载时的那次会话：若同一文件已被重新打开（新 token），主进程会忽略本次 close
+  window.api.pdfClose(mountedFileId, mountedSessionToken)
 
   if (progressSaveDebounce) clearTimeout(progressSaveDebounce)
   if (resizeDebounce) clearTimeout(resizeDebounce)
@@ -539,6 +553,19 @@ function computeProgressPercent() {
 function syncPdfRuntimeProgress() {
   pdf.currentPage.value = renderer.currentPage.value
   pdf.progressPercent.value = computeProgressPercent()
+}
+
+function invalidateRenderedPages() {
+  renderer.cancelAll()
+  for (const pageNum of renderer.renderedPages.value) {
+    const canvas = canvasRefs.value[pageNum]
+    if (canvas) {
+      canvas.width = 0
+      canvas.height = 0
+    }
+  }
+  renderer.renderedPages.value = new Set()
+  failedPages.value = new Set()
 }
 
 function scheduleRenderPool() {
@@ -641,16 +668,7 @@ watch(
   () => {
     invalidatePendingResizeHorizontalAnchor()
     renderer.recomputeOffsets()
-    renderer.cancelAll()
-    for (const pageNum of renderer.renderedPages.value) {
-      const canvas = canvasRefs.value[pageNum]
-      if (canvas) {
-        canvas.width = 0
-        canvas.height = 0
-      }
-    }
-    renderer.renderedPages.value = new Set()
-    failedPages.value = new Set()
+    invalidateRenderedPages()
     scheduleRenderPool()
     schedulePdfProgressSave()
     nextTick(() => {
@@ -676,9 +694,28 @@ watch(
 )
 
 watch(
+  () => renderer.layoutScale.value,
+  () => {
+    if (!initialRestorePending.value) renderer.updateCurrentPage()
+    if (renderer.renderedPages.value.size > 0) invalidateRenderedPages()
+    scheduleRenderPool()
+  },
+  { flush: 'post' }
+)
+
+watch(
   () => renderer.pageOffsets.value,
   () => {
     if (!pendingRestoreAnchor.value) return
+    applyPendingRestoreAnchor({ requireReady: true })
+  },
+  { flush: 'post' }
+)
+
+watch(
+  () => renderer.resolvedBaseSizePageCount?.value,
+  () => {
+    if (!pendingRestoreAnchor.value || !isPendingRestoreAnchorReady()) return
     applyPendingRestoreAnchor({ requireReady: true })
   },
   { flush: 'post' }
@@ -713,12 +750,19 @@ watch(
     class="pdf-scroll-container"
     :class="{
       'is-restoring-initial-scroll': initialRestorePending,
-      'is-invert-colors': pdfPrefs.invertColors
+      'is-custom-colors': pdfPrefs.invertColors
     }"
-    :style="{ cursor: cursorStyle }"
+    :style="pdfReaderStyle"
     @scroll="onScroll"
     @mousedown="onMousedown"
   >
+    <svg class="pdf-duotone-defs" aria-hidden="true" focusable="false">
+      <defs>
+        <filter :id="pdfDuotoneFilterId" color-interpolation-filters="sRGB">
+          <feColorMatrix data-test="pdf-duotone-matrix" type="matrix" :values="pdfDuotoneMatrix" />
+        </filter>
+      </defs>
+    </svg>
     <div v-if="initialRestorePending" class="pdf-restore-placeholder" aria-hidden="true">
       <div class="pdf-restore-page"></div>
     </div>
@@ -739,8 +783,8 @@ watch(
         :style="{
           position: 'absolute',
           top: (renderer.pageOffsets.value[idx] || 0) + 'px',
-          width: Math.round(size.w * renderer.effectiveScale()) + 'px',
-          height: Math.round(size.h * renderer.effectiveScale()) + 'px',
+          width: Math.round(size.w * renderer.layoutScale.value) + 'px',
+          height: Math.round(size.h * renderer.layoutScale.value) + 'px',
           left: '50%',
           transform: 'translateX(-50%)'
         }"
@@ -776,8 +820,8 @@ watch(
 .pdf-scroll-container.is-restoring-initial-scroll {
   pointer-events: none;
 }
-.pdf-scroll-container.is-invert-colors {
-  background: #000;
+.pdf-scroll-container.is-custom-colors {
+  background: var(--pdf-background-color);
 }
 .pdf-scroll-container.is-restoring-initial-scroll .pdf-pages {
   visibility: hidden;
@@ -790,6 +834,12 @@ watch(
   align-items: center;
   justify-content: center;
   pointer-events: none;
+}
+.pdf-duotone-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
 }
 .pdf-restore-page {
   width: min(72%, 420px);
@@ -817,23 +867,23 @@ watch(
 .pdf-canvas {
   display: block;
 }
-.pdf-scroll-container.is-invert-colors .pdf-page-slot {
-  background: #000;
+.pdf-scroll-container.is-custom-colors .pdf-page-slot {
+  background: var(--pdf-background-color);
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.08),
     0 1px 3px rgba(0, 0, 0, 0.36);
 }
-.pdf-scroll-container.is-invert-colors .pdf-canvas {
-  filter: invert(1) hue-rotate(180deg);
+.pdf-scroll-container.is-custom-colors .pdf-canvas {
+  filter: var(--pdf-duotone-filter);
 }
-.pdf-scroll-container.is-invert-colors .pdf-restore-page {
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.1));
+.pdf-scroll-container.is-custom-colors .pdf-restore-page {
+  background: var(--pdf-background-color);
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.08),
     0 8px 24px rgba(0, 0, 0, 0.28);
 }
-.pdf-scroll-container.is-invert-colors .pdf-page-error {
-  color: rgba(255, 255, 255, 0.72);
+.pdf-scroll-container.is-custom-colors .pdf-page-error {
+  color: var(--pdf-text-color);
 }
 .pdf-page-error {
   color: var(--text-secondary);

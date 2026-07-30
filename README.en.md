@@ -76,8 +76,8 @@ npm run dev
 ### Read your first book
 
 - **TXT**: The app detects chapters automatically and builds a table of contents. Search results appear in the bottom panel, with matching text highlighted in the document. If the text is garbled, open “排版” (Typography) and manually switch among UTF-8, GBK, GB2312, and Big5.
-- **EPUB**: In “排版” (Typography), switch between scrolling and paginated modes and adjust the font size, line height, and font family. EPUB also supports a table of contents and book-wide search.
-- **PDF**: Open “PDF 适配” (PDF Fit) to choose Fit Width, Fit Page, or a custom zoom from 25% to 400%. If the file contains a bookmark outline, the bottom bar also displays a contents button.
+- **EPUB**: In “排版” (Typography), switch between scrolling and paginated modes and adjust the font size, line height, and font family. EPUB also supports a table of contents and book-wide search. Images in the text are hidden by default; click “隐藏图片” (Hide Images) in the bottom bar to show or hide them at any time.
+- **PDF**: Open “PDF 适配” (PDF Fit) to choose Fit Width, Fit Page, or a custom zoom from 25% to 400%. If the file contains a bookmark outline, the bottom bar also displays a contents button. “自定义配色” (Custom Colors) defaults to white text on black and can be changed to any two colors in Preferences.
 
 ### Manage quick sites
 
@@ -151,8 +151,8 @@ While reading TXT or EPUB, choose “更多 → 精简模式” (More → Mini M
 | --- | --- |
 | **Web** | Smart address bar, suggestions from history and favorites, iPhone / iPad / macOS / Windows user agents (UA), per-site overrides, Plain View (softened page backgrounds), hide images and video, hide scrollbars, page zoom, and wheel-speed control |
 | **TXT** | Hierarchical chapter list, full-text search, encoding detection and switching, font size / line height / font family, auto page-turn, background parsing for large files, and on-demand rendering |
-| **EPUB** | Table of contents, book-wide search, scrolling / paginated modes, font size / line height / font family, auto page-turn, and Mini Mode; encrypted EPUB files protected by DRM are not supported |
-| **PDF** | Embedded bookmark outline, Fit Width / Fit Page / 25%–400% zoom, page jumping, and on-demand streaming; full-text search and Mini Mode are not supported |
+| **EPUB** | Table of contents, book-wide search, scrolling / paginated modes, font size / line height / font family, auto page-turn, one-click image visibility (hidden by default), and Mini Mode; DRM-protected books and fixed-layout comics or art books are not supported |
+| **PDF** | Embedded bookmark outline, Fit Width / Fit Page / 25%–400% zoom, page jumping, on-demand streaming, and full-page custom duotone colors; full-text search and text selection, forms and printing, and Mini Mode are not supported |
 | **History and restore** | Web and file history each keep the latest 100 entries and can be deleted individually, cleared, or disabled completely; each file stores its own progress, while commonly used typography and modes are saved as preferences |
 
 ## Frequently Used Shortcuts
@@ -205,6 +205,16 @@ Go to “偏好设置 → 模式 → 网页” (Preferences → Modes → Web) a
 <summary><strong>TXT text is garbled. What should I do?</strong></summary>
 
 In the TXT bottom bar, open “排版 → 编码” (Typography → Encoding) and try UTF-8, GBK, GB2312, or Big5. The text is reparsed immediately after you switch encodings.
+
+</details>
+
+<details>
+<summary><strong>A comic or art-book EPUB opens blank. I cannot select text in a PDF. Why?</strong></summary>
+
+Goof Off targets long-form, text-first reading. Both behaviors are deliberate trade-offs rather than defects:
+
+- **EPUB** is rendered as reflowable text, and images in the text are hidden by default, so comics, art books, and scanned books whose pages are entirely images open as blank pages. Those books need a large, high-fidelity canvas, which conflicts with the small disguised window this app is built around; use a dedicated reader instead. The publisher's own typography and colors are also normalized to your chosen reading colors, and in-book scripts, narration audio, and DRM-protected books are not supported.
+- **PDF** pages are rendered only as images, with no text layer, so text cannot be selected, copied, searched, or extracted, and annotations, form filling, printing, and exporting are unavailable. Custom Colors flattens each page to two colors, so turn it off when you need accurate colors.
 
 </details>
 

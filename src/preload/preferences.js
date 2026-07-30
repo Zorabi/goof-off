@@ -70,7 +70,7 @@ const api = {
   epubGetPrefs: () => ipcRenderer.invoke('epub:get-prefs'),
   epubSetPrefs: (patch) => ipcRenderer.invoke('epub:set-prefs', patch),
   onEpubPrefsChange: (callback) => {
-    const handler = (_e, prefs) => callback(prefs)
+    const handler = (_e, prefs, options) => callback(prefs, options)
     ipcRenderer.on('epub-prefs:changed', handler)
     return () => ipcRenderer.removeListener('epub-prefs:changed', handler)
   },

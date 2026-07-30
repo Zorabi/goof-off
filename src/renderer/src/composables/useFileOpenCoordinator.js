@@ -47,8 +47,13 @@ export function createFileOpenCoordinator({
   }
 
   async function cleanupStaleResult(kind, result) {
+    if (kind === 'pdf' && result?.ok && result.data?.fileId) {
+      api.pdfClose(result.data.fileId, result.data.sessionToken)
+    }
+    if (kind === 'epub' && result?.ok && result.data?.fileId) {
+      epub.releaseOpenSession?.(result.data.fileId, result.data.sessionToken)
+    }
     if (result?.historyToken) await api.historyDiscardFile(result.historyToken)
-    if (kind === 'pdf' && result?.ok && result.data?.fileId) api.pdfClose(result.data.fileId)
     logDiagnostic('file.open.stale_cleanup', {
       kind,
       ok: Boolean(result?.ok),
@@ -113,6 +118,9 @@ export function createFileOpenCoordinator({
   async function handleEpubOpenResult(result, requestId, source = 'unknown') {
     if (!result) return undefined
     if (!isCurrentOpenRequest(requestId)) {
+      if (result.ok && result.data?.fileId) {
+        epub.releaseOpenSession?.(result.data.fileId, result.data.sessionToken)
+      }
       if (result.historyToken) await api.historyDiscardFile(result.historyToken)
       return undefined
     }
@@ -151,7 +159,7 @@ export function createFileOpenCoordinator({
   async function handlePdfOpenResult(result, requestId, source = 'unknown') {
     if (!result) return undefined
     if (!isCurrentOpenRequest(requestId)) {
-      if (result.ok) api.pdfClose(result.data.fileId)
+      if (result.ok) api.pdfClose(result.data.fileId, result.data.sessionToken)
       if (result.historyToken) await api.historyDiscardFile(result.historyToken)
       return undefined
     }
@@ -162,7 +170,7 @@ export function createFileOpenCoordinator({
         appState.state.content === 'file' && appState.state.fileKind === 'pdf'
       const loadResult = await pdf.load(result.data.fileId, result.data)
       if (!isCurrentOpenRequest(requestId)) {
-        api.pdfClose(result.data.fileId)
+        api.pdfClose(result.data.fileId, result.data.sessionToken)
         if (result.historyToken) await api.historyDiscardFile(result.historyToken)
         return undefined
       }
@@ -175,7 +183,7 @@ export function createFileOpenCoordinator({
         await writeFileIntent('pdf', result)
         return result
       } else {
-        api.pdfClose(result.data.fileId)
+        api.pdfClose(result.data.fileId, result.data.sessionToken)
         if (result.historyToken) await api.historyDiscardFile(result.historyToken)
         if (loadResult.reason && loadResult.reason !== 'stale') {
           if (replacingActivePdf) appState.dispatch({ type: 'NAVIGATE_HOME' })
@@ -479,7 +487,7 @@ export function createFileOpenCoordinator({
           return staleResult
         }
         if (!loadResult.ok) {
-          api.pdfClose(result.data.fileId)
+          api.pdfClose(result.data.fileId, result.data.sessionToken)
           if (result.historyToken) await api.historyDiscardFile(result.historyToken)
           const finalResult = {
             ok: false,

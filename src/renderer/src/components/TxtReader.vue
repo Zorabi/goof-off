@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount, onUnmounted, nextTick, watch } from 'vue'
 import { splitParagraphByHits } from '../composables/txtSearchCore.js'
 import { useAppState } from '../composables/useAppState.js'
 import { injectTxt } from '../composables/useTxt.js'
@@ -33,21 +33,64 @@ const contentStyle = computed(() => {
   return style
 })
 
-const searchSegmentsByOffset = computed(() => {
+// 高亮分段拆成两层：基础 Map 只依赖 hits/queryLength（改词才全书重建）；
+// "当前命中"标记单独按命中所在段落计算，命中导航从每按一次 O(全书段落) 降为 O(log n)。
+const baseSegmentsByOffset = computed(() => {
   const map = new Map()
   if (!search?.active.value) return map
   const hits = search.hits.value
   const queryLength = search.queryLength.value
-  const currentHitOffset = search.currentHitOffset.value
   for (const para of paragraphs.value) {
-    map.set(para.charOffset, splitParagraphByHits(para, hits, queryLength, currentHitOffset))
+    map.set(para.charOffset, splitParagraphByHits(para, hits, queryLength, -1))
+  }
+  return map
+})
+
+function findParagraphIndexForOffset(paras, offset) {
+  let lo = 0
+  let hi = paras.length - 1
+  let ans = 0
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    if (paras[mid].charOffset <= offset) {
+      ans = mid
+      lo = mid + 1
+    } else {
+      hi = mid - 1
+    }
+  }
+  return ans
+}
+
+const currentHitSegmentsByOffset = computed(() => {
+  const map = new Map()
+  if (!search?.active.value) return map
+  const currentHitOffset = search.currentHitOffset.value
+  const queryLength = search.queryLength.value
+  if (!Number.isFinite(currentHitOffset) || currentHitOffset < 0 || queryLength <= 0) return map
+  const paras = paragraphs.value
+  if (!paras.length) return map
+  const hitEnd = currentHitOffset + queryLength
+  // 命中可能跨段（覆盖换行），把所有与命中区间重叠的段落都算上
+  for (let idx = findParagraphIndexForOffset(paras, currentHitOffset); idx < paras.length; idx++) {
+    const para = paras[idx]
+    if (para.charOffset >= hitEnd) break
+    const paraEnd = para.charOffset + (para.text?.length || 0)
+    if (paraEnd > currentHitOffset) {
+      map.set(
+        para.charOffset,
+        splitParagraphByHits(para, search.hits.value, queryLength, currentHitOffset)
+      )
+    }
   }
   return map
 })
 
 function searchSegments(para) {
+  const current = currentHitSegmentsByOffset.value.get(para.charOffset)
+  if (current) return current
   return (
-    searchSegmentsByOffset.value.get(para.charOffset) || [
+    baseSegmentsByOffset.value.get(para.charOffset) || [
       { text: para.text || ' ', highlighted: false, current: false }
     ]
   )
@@ -210,16 +253,34 @@ function syncAfterProgrammaticScroll() {
 
 // ========== 滚动 / 键盘 ==========
 let scrollThrottle = null
+let scrollRafId = null
+// 保存前必须消化挂起的滚动帧：rAF 可能未执行（卸载瞬间）或被挂起（老板键隐藏窗口），
+// 直接读 txt.offset 会保存滚动前的旧位置。
+function flushPendingScrollSync() {
+  if (scrollRafId === null) return
+  cancelAnimationFrame(scrollRafId)
+  scrollRafId = null
+  updateOffsetFromVisible()
+  updatePageInfo()
+}
+
 function saveMountedPosition() {
   if (shouldDiscardMaintenanceProgress()) return
   if (txt.fileId.value !== mountedFileId) return
+  flushPendingScrollSync()
   txt.savePosition()
 }
 
 function onScroll() {
   if (isRestoring.value) return
-  updateOffsetFromVisible()
-  updatePageInfo()
+  // 滚轮一次可触发多个 scroll 事件，offset/页码重算涉及多次布局读取，合并到帧
+  if (scrollRafId === null) {
+    scrollRafId = requestAnimationFrame(() => {
+      scrollRafId = null
+      updateOffsetFromVisible()
+      updatePageInfo()
+    })
+  }
   if (scrollThrottle) return
   scrollThrottle = setTimeout(() => {
     scrollThrottle = null
@@ -249,6 +310,8 @@ watch(
 watch(
   () => [txtPrefs.value.fontSize, txtPrefs.value.lineHeight, txtPrefs.value.fontFamily],
   async () => {
+    // 重排前先消化挂起的滚动帧，否则会拿上一帧的旧 offset 重新锚定
+    flushPendingScrollSync()
     const offset = txt.offset.value
     const ratio = txt.intraBlockRatio.value
     await nextTick()
@@ -272,18 +335,30 @@ onMounted(async () => {
   ro.observe(containerRef.value)
 
   ctrl.register({ nextPage, prevPage, goToPage, jumpToPercent, scrollToOffset })
-  unregisterActiveFlush = registerActiveReaderFlush(txt.flushCurrentProgress)
+  unregisterActiveFlush = registerActiveReaderFlush(() => {
+    flushPendingScrollSync()
+    return txt.flushCurrentProgress()
+  })
   document.addEventListener('keydown', onKeydown)
+})
+
+// Vue 在 unmounted 钩子前已置空模板 ref，flushPendingScrollSync 会因 containerRef
+// 为 null 空转丢掉最后一帧滚动；保存必须在 beforeUnmount（ref 仍存活）完成。
+onBeforeUnmount(() => {
+  saveMountedPosition()
 })
 
 onUnmounted(() => {
   document.removeEventListener('keydown', onKeydown)
   unregisterActiveFlush?.()
   ctrl.unregister()
-  saveMountedPosition()
   if (scrollThrottle) {
     clearTimeout(scrollThrottle)
     scrollThrottle = null
+  }
+  if (scrollRafId !== null) {
+    cancelAnimationFrame(scrollRafId)
+    scrollRafId = null
   }
   if (io) {
     io.disconnect()
@@ -309,6 +384,11 @@ onUnmounted(() => {
       <p
         v-for="(para, i) in paragraphs"
         :key="i"
+        v-memo="[
+          para,
+          baseSegmentsByOffset.get(para.charOffset),
+          currentHitSegmentsByOffset.get(para.charOffset)
+        ]"
         :data-char-offset="para.charOffset"
         class="txt-para"
       >

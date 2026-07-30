@@ -25,6 +25,8 @@ const PDF_KEY = Symbol('pdf')
 
 export function createPdf() {
   const fileId = ref('')
+  // 当前已接受会话的 open sessionToken：卸载/替换时定向关闭，过期 close 不会误杀新会话
+  const sessionToken = ref(null)
   const displayName = ref('')
   const pageCount = ref(0)
   const doc = shallowRef(null) // 使用 shallowRef 避免 Vue 深度响应式包装 pdfjs 对象
@@ -75,6 +77,7 @@ export function createPdf() {
 
   function resetAcceptedState() {
     fileId.value = ''
+    sessionToken.value = null
     displayName.value = ''
     pageCount.value = 0
     currentPage.value = 1
@@ -138,7 +141,7 @@ export function createPdf() {
     loading.value = true
     const mySeq = ++loadSeq
     clearCurrentPdfSession()
-    const { displayName: name, savedProgress } = openData
+    const { displayName: name, sessionToken: openSessionToken, savedProgress } = openData
 
     const nextCurrentPage = 1
     const nextInitialInPageRatio = 0
@@ -161,7 +164,7 @@ export function createPdf() {
     } catch (err) {
       console.error('[usePdf] PDF 加载失败:', err)
       loading.value = false
-      window.api.pdfClose(newFileId)
+      window.api.pdfClose(newFileId, openSessionToken)
       const msg = classifyError(err)
       if (!opts.silent) pushStatus(msg)
       return { ok: false, reason: 'load-failed', message: msg }
@@ -169,7 +172,7 @@ export function createPdf() {
 
     if (loadSeq !== mySeq) {
       newDoc.destroy()
-      window.api.pdfClose(newFileId)
+      window.api.pdfClose(newFileId, openSessionToken)
       return { ok: false, reason: 'stale' }
     }
 
@@ -183,7 +186,7 @@ export function createPdf() {
 
       if (loadSeq !== mySeq) {
         newDoc.destroy()
-        window.api.pdfClose(newFileId)
+        window.api.pdfClose(newFileId, openSessionToken)
         return { ok: false, reason: 'stale' }
       }
 
@@ -196,6 +199,7 @@ export function createPdf() {
 
     doc.value = newDoc
     fileId.value = newFileId
+    sessionToken.value = openSessionToken ?? null
     displayName.value = name
     pageCount.value = newDoc.numPages
     currentPage.value = resolvedCurrentPage
@@ -238,6 +242,7 @@ export function createPdf() {
 
   return {
     fileId,
+    sessionToken,
     displayName,
     pageCount,
     doc,

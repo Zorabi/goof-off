@@ -4,6 +4,7 @@ import { injectChromeLockRegistry } from './useChromeLockRegistry.js'
 import { logDiagnostic } from './useDiagnosticLog.js'
 
 const ADDRESS_LOCK_ID = 'top.address-input'
+const DEFAULT_SUGGESTION_DEBOUNCE_MS = 100
 
 function diagnosticAddressUrl(rawUrl) {
   if (!rawUrl) return undefined
@@ -23,6 +24,9 @@ export function useAddressInput(options = {}) {
   const appState = options.appState || null
   const onCommit = options.onCommit
   const onEmptySubmit = options.onEmptySubmit
+  const suggestionDebounceMs = Number.isFinite(options.suggestionDebounceMs)
+    ? Math.max(0, options.suggestionDebounceMs)
+    : DEFAULT_SUGGESTION_DEBOUNCE_MS
 
   const editing = ref(false)
   const inputValue = ref('')
@@ -58,6 +62,7 @@ export function useAddressInput(options = {}) {
   }
 
   async function closeSuggestions() {
+    cancelPendingSuggestionLoad()
     suggestions.value = []
     activeIndex.value = -1
     loading.value = false
@@ -117,9 +122,27 @@ export function useAddressInput(options = {}) {
     activeIndex.value = -1
   }
 
+  let suggestionDebounceTimer = null
+
+  function cancelPendingSuggestionLoad() {
+    if (suggestionDebounceTimer) {
+      clearTimeout(suggestionDebounceTimer)
+      suggestionDebounceTimer = null
+    }
+  }
+
   function setInputValue(value) {
     inputValue.value = String(value || '')
-    loadSuggestions(inputValue.value)
+    cancelPendingSuggestionLoad()
+    // 空输入立即清空联想面板；非空输入防抖，避免每个按键一次 IPC 往返
+    if (!inputValue.value.trim() || suggestionDebounceMs === 0) {
+      loadSuggestions(inputValue.value)
+      return
+    }
+    suggestionDebounceTimer = setTimeout(() => {
+      suggestionDebounceTimer = null
+      loadSuggestions(inputValue.value)
+    }, suggestionDebounceMs)
   }
 
   async function setSuggestionPanelHeight() {

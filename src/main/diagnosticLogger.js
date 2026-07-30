@@ -134,9 +134,13 @@ export function createDiagnosticLogger(options = {}) {
   let writeChain = Promise.resolve()
   let activeDate = dateKey(now(), timeZone)
   let activeShard = 0
+  // 目录只需保证一次；文件大小仍须逐次探测，因为其它应用实例可能写入同一分片。
+  let ensuredDir = false
 
   async function ensureDir() {
+    if (ensuredDir) return
     await fsApi.mkdir(logsDir, { recursive: true })
+    ensuredDir = true
   }
 
   function activeLogPath() {
@@ -231,31 +235,46 @@ export function createDiagnosticLogger(options = {}) {
     }
   }
 
+  async function attemptAppend(safe, dropped) {
+    await ensureDir()
+    const line = buildLine(safe, { dropped })
+    let target = await appendIfCapacity(line)
+    let degraded = false
+    if (!target && (safe.level === 'warn' || safe.level === 'error')) {
+      const degradedLine = buildDegradedLine(safe, dropped)
+      target = await appendIfCapacity(degradedLine)
+      degraded = Boolean(target)
+    }
+    if (!target) {
+      if (safe.level !== 'warn' && safe.level !== 'error') droppedInfoCount += 1
+      return { ok: false, reason: 'capacity' }
+    }
+    if (dropped) droppedInfoCount = 0
+    if (degraded) return { ok: true, degraded: true }
+    return { ok: true, path: target }
+  }
+
+  function invalidateDirectoryCache() {
+    ensuredDir = false
+  }
+
   async function writeEvent(level, eventName, data = {}, processName = 'main') {
     try {
       if (!(await isEnabled())) return { ok: false, reason: 'disabled' }
-      await ensureDir()
       const safe = sanitizeDiagnosticEvent(
         { level, event: eventName, process: processName, data },
         { projectRoot }
       )
       const dropped = droppedInfoCount > 0 ? { info: droppedInfoCount } : undefined
-      const line = buildLine(safe, { dropped })
-      let target = await appendIfCapacity(line)
-      let degraded = false
-      if (!target && (safe.level === 'warn' || safe.level === 'error')) {
-        const degradedLine = buildDegradedLine(safe, dropped)
-        target = await appendIfCapacity(degradedLine)
-        degraded = Boolean(target)
+      try {
+        return await attemptAppend(safe, dropped)
+      } catch {
+        // 目录可能被外部删除：重置后重试一次，避免丢这条事件。
+        invalidateDirectoryCache()
+        return await attemptAppend(safe, dropped)
       }
-      if (!target) {
-        if (safe.level !== 'warn' && safe.level !== 'error') droppedInfoCount += 1
-        return { ok: false, reason: 'capacity' }
-      }
-      if (dropped) droppedInfoCount = 0
-      if (degraded) return { ok: true, degraded: true }
-      return { ok: true, path: target }
     } catch (error) {
+      invalidateDirectoryCache()
       console.warn('[diagnosticLogger] write failed:', error?.message || error)
       return { ok: false, reason: 'write-failed' }
     }

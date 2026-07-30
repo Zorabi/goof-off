@@ -22,6 +22,10 @@ import {
   injectSearchHighlightStyle
 } from '../composables/epubSearchHighlight.js'
 import { collectTextNodes, offsetFromDomPosition } from '../composables/epubSearchCore.js'
+import {
+  createEpubImageLayoutSettler,
+  syncEpubImageVisibility
+} from '../composables/epubImageVisibility.js'
 
 const props = defineProps({
   fileVisualState: { type: Object, default: null },
@@ -47,6 +51,9 @@ let unregisterActiveFlush = null
 let themeFailureNotified = false
 let selectionHookRegistered = false
 let searchHighlightHookRegistered = false
+let imageVisibilityHookRegistered = false
+let imageVisibilityGeneration = 0
+let cancelImageLayoutSettlement = null
 const trackpadContentCleanups = new Map()
 let trackpadHookRegistered = false
 const contentPointerCleanups = new Map()
@@ -516,6 +523,26 @@ function getLoadedContents() {
   return typeof rendition?.getContents === 'function' ? rendition.getContents() : []
 }
 
+function shouldHideEpubImages() {
+  return epubPrefs.value.hideImages !== false
+}
+
+function injectImageVisibilityFromHook(contents) {
+  syncEpubImageVisibility(contents, shouldHideEpubImages())
+}
+
+function ensureImageVisibilityHook() {
+  if (imageVisibilityHookRegistered || !rendition?.hooks?.content?.register) return
+  rendition.hooks.content.register(injectImageVisibilityFromHook)
+  imageVisibilityHookRegistered = true
+}
+
+function syncLoadedImageVisibility(hideImages = shouldHideEpubImages()) {
+  for (const contents of getLoadedContents()) {
+    syncEpubImageVisibility(contents, hideImages)
+  }
+}
+
 function injectSearchHighlightStyleFromHook(contents) {
   injectSearchHighlightStyle(contents)
 }
@@ -767,9 +794,16 @@ function getSectionForCfi(cfi) {
   }
 }
 
-function moveVisibleViewToCfi(cfi, section) {
+function visibleViewForSection(section) {
   try {
-    const view = rendition?.manager?.views?.find?.(section)
+    return rendition?.manager?.views?.find?.(section) || null
+  } catch {
+    return null
+  }
+}
+
+function moveVisibleViewToCfi(cfi, section, view = visibleViewForSection(section)) {
+  try {
     if (!view?.locationOf || !rendition?.manager?.moveTo) return false
     const offset = view.locationOf(cfi)
     if (!offset || (typeof offset.left !== 'number' && typeof offset.top !== 'number')) {
@@ -780,6 +814,55 @@ function moveVisibleViewToCfi(cfi, section) {
     return true
   } catch {
     return false
+  }
+}
+
+function scrollRangeRatio(element) {
+  if (!element) return 0
+  const range = Math.max(0, element.scrollHeight - element.clientHeight)
+  return range > 0 ? clampPercentage(element.scrollTop / range) || 0 : 0
+}
+
+function restoreScrollRangeRatio(element, ratio) {
+  if (!element) return
+  const range = Math.max(0, element.scrollHeight - element.clientHeight)
+  element.scrollTop = range * ratio
+}
+
+async function applyImageVisibilityPreservingPosition(hideImages) {
+  const activeRendition = rendition
+  if (!activeRendition) return
+
+  const generation = ++imageVisibilityGeneration
+  cancelImageLayoutSettlement?.()
+  const location = currentLocationForProgress()
+  const cfi = location?.start?.cfi || ''
+  const section = cfi ? getSectionForCfi(cfi) : null
+  const ratio = scrollRangeRatio(getScrollContainer())
+  const layoutSettler = createEpubImageLayoutSettler(getLoadedContents(), {
+    manager: activeRendition.manager,
+    view: section ? visibleViewForSection(section) : null,
+    waitForImages: hideImages === false
+  })
+  cancelImageLayoutSettlement = layoutSettler.cancel
+
+  autoTurn.pause()
+  try {
+    syncLoadedImageVisibility(hideImages)
+    await layoutSettler.promise
+
+    if (generation !== imageVisibilityGeneration || rendition !== activeRendition) return
+
+    const restoredCfi = Boolean(cfi && section && moveVisibleViewToCfi(cfi, section))
+    if (!restoredCfi) restoreScrollRangeRatio(getScrollContainer(), ratio)
+    snapToPaginateBoundary()
+    reportLocationNow()
+  } finally {
+    layoutSettler.cancel()
+    if (cancelImageLayoutSettlement === layoutSettler.cancel) {
+      cancelImageLayoutSettlement = null
+    }
+    autoTurn.resume()
   }
 }
 
@@ -953,6 +1036,8 @@ onMounted(async () => {
   })
   hideScrollbar(getScrollContainer())
 
+  ensureImageVisibilityHook()
+  syncLoadedImageVisibility()
   ensureSearchHighlightHook()
   ensureTrackpadGestureHook()
   ensureFileDragHook()
@@ -971,6 +1056,10 @@ onMounted(async () => {
   epub.registerRenditionCleanup(({ discardProgress } = {}) => {
     if (!discardProgress && !shouldDiscardMaintenanceProgress()) flushSave()
     clearLoadedSearchHighlights()
+    imageVisibilityGeneration += 1
+    cancelImageLayoutSettlement?.()
+    cancelImageLayoutSettlement = null
+    imageVisibilityHookRegistered = false
     clearTrackpadGestureContentListeners()
     clearFileDragContentListeners()
     clearContentPointerListeners()
@@ -1032,6 +1121,10 @@ onUnmounted(() => {
   clearFileDragContentListeners()
   clearContentPointerListeners()
   clearLoadedSearchHighlights()
+  imageVisibilityGeneration += 1
+  cancelImageLayoutSettlement?.()
+  cancelImageLayoutSettlement = null
+  imageVisibilityHookRegistered = false
   clearChapterTextNodeIndexCache()
   ctrl.resetSearchAnchor()
   if (rendition) {
@@ -1063,6 +1156,15 @@ watch(
     const mode = newMode === 'paginate' ? 'paginate' : 'scroll'
     if (ctrl.mode.value !== mode) ctrl.mode.value = mode
   }
+)
+
+watch(
+  () => epubPrefs.value.hideImages,
+  (hideImages) => {
+    if (!rendition) return
+    void applyImageVisibilityPreservingPosition(hideImages !== false)
+  },
+  { flush: 'sync' }
 )
 
 watch(

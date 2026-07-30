@@ -674,6 +674,21 @@ input[type='checkbox']:disabled {
   height: 22px;
   border: 1px solid var(--prefs-swatch-border);
   border-radius: var(--prefs-radius);
+  /* 内衬暗线：浅色块在深色面板上外边框不可见，靠内圈收出一致的视觉边界 */
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.28);
+}
+
+.prefs-swatch-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--prefs-fs-control);
+  color: var(--prefs-text-dim);
+  cursor: pointer;
+}
+
+.prefs-swatch-field:has(input:disabled) {
+  cursor: default;
 }
 
 .prefs-swatch input[type='color'] {

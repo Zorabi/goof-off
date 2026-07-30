@@ -26,6 +26,7 @@ export function createMainWindowBootstrap(deps) {
           deps.setupDialogBridge(win)
           deps.webviewManager.init(win)
           deps.pdfService.bindMainWindow(win)
+          deps.epubService.bindMainWindow(win)
           await deps.applySystemVisibilityPrefs?.(deps.getSystemPrefs?.(), { win })
           if (pending.showWhenReady) revealReadyWindow(win)
           resolve(win)
