@@ -38,6 +38,8 @@ const rawStore = new Store({
         windowEnabled: { type: 'boolean' },
         contentEnabled: { type: 'boolean' },
         windowLevel: { type: 'number', minimum: 0.1, maximum: 0.95 },
+        // Keep accepting legacy zero values long enough for
+        // initTransparencyPrefs() to normalize and persist the safe floor.
         contentLevel: { type: 'number', minimum: 0, maximum: 0.95 }
       }
     },

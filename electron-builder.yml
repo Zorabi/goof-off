@@ -7,6 +7,13 @@ files:
   - resources/**
   - package.json
   - LICENSE
+  # Renderer dependencies are bundled by Vite and electron-store is bundled into
+  # the main process. Keep only modules that remain external at runtime.
+  - '!node_modules/**'
+  - node_modules/@electron-toolkit/utils/**
+  - node_modules/iconv-lite/**
+  - node_modules/jschardet/**
+  - node_modules/safer-buffer/**
   - '!**/.DS_Store'
   - '!src/**'
   - '!logs/**'

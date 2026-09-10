@@ -35,7 +35,13 @@ function persistPrefs(next, persist) {
 }
 
 export function initTransparencyPrefs() {
-  transparencyPrefs = normalizeTransparencyPrefs(store.get('transparencyPrefs'))
+  const storedPrefs = store.get('transparencyPrefs')
+  transparencyPrefs = normalizeTransparencyPrefs(storedPrefs)
+  // Persist normalization so legacy zero-opacity configurations are migrated
+  // once instead of recreating an invisible input-blocking window every boot.
+  if (!prefsEqual(storedPrefs || {}, transparencyPrefs)) {
+    persistPrefs(transparencyPrefs, 'sync')
+  }
   try {
     store.delete?.('windowOpacity')
     store.delete?.('contentOpacity')

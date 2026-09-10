@@ -30,7 +30,6 @@ import {
 } from './composables/useAutoTurnChromePause.js'
 import { resolveEffectiveOpacity } from '../../shared/transparencyPrefs.js'
 import {
-  CHROME_DRAG_BAND_HEIGHT,
   CHROME_HOT_ZONE_HEIGHT,
   CHROME_MINI_DRAG_RAIL_WIDTH
 } from '../../shared/chromeLayoutModel.js'
@@ -100,6 +99,12 @@ const stealthWindowLeaveArmed = computed(
     appStateApi.state.hidden !== true &&
     stealthAutoHide.bodyHidden.value === false
 )
+const stealthWindowReentryArmed = computed(
+  () =>
+    appStateApi.state.hidden !== true &&
+    stealthAutoHide.bodyHidden.value === true &&
+    stealthAutoHide.bodyAutoHideEnabled.value === true
+)
 const stealthWindowLeaveReadingTargetKey = computed(
   () =>
     `${appStateApi.state.content || 'none'}:${appStateApi.state.fileKind || 'none'}:${appStateApi.state.form || 'none'}`
@@ -107,9 +112,11 @@ const stealthWindowLeaveReadingTargetKey = computed(
 const stealthWindowLeaveWatcher = useStealthWindowLeaveWatcher({
   api: window.api,
   armed: stealthWindowLeaveArmed,
+  revealArmed: stealthWindowReentryArmed,
   readingTargetKey: stealthWindowLeaveReadingTargetKey,
   canHideIgnoringFocus: stealthAutoHide.canWindowLeaveHideBodyIgnoringFocus,
-  requestBodyHideForWindowLeave: stealthAutoHide.requestBodyHideForWindowLeave
+  requestBodyHideForWindowLeave: stealthAutoHide.requestBodyHideForWindowLeave,
+  requestBodyReveal: stealthAutoHide.restoreStealthInteraction
 })
 const txtAutoTurnShouldPause = computed(
   () =>
@@ -156,13 +163,13 @@ function isClickThroughPassthroughActive() {
   )
 }
 
-// 这里只过滤 Electron 已转发到 renderer 的 mousemove。Windows 原生 drag 区在穿透态
-// 不保证派发该事件；已验收的唤回面是 no-drag 控件命中区与栏体内沿暴露热区。
+// renderer 转发事件作为 main 全局光标采样的低延迟兜底；两者统一使用全宽
+// 顶部/底部 44px，不再把 6px 拖拽带排除成无法唤回的死区。
 function shouldNotifyBodyMousemove(e) {
   const clickThroughPassthrough = isClickThroughPassthroughActive()
   if (!clickThroughPassthrough) return true
   return (
-    (e.clientY > CHROME_DRAG_BAND_HEIGHT && e.clientY <= CHROME_HOT_ZONE_HEIGHT) ||
+    (e.clientY >= 0 && e.clientY < CHROME_HOT_ZONE_HEIGHT) ||
     e.clientY >= windowSize.height - CHROME_HOT_ZONE_HEIGHT
   )
 }
@@ -563,6 +570,7 @@ let unsubscribeStealthBodyActivity = null
 let unsubscribeBrowserWebHotZoneState = null
 let unsubscribeBrowserContentPointerDown = null
 let unsubscribeStealthWindowLeft = null
+let unsubscribeStealthWindowReentered = null
 let unsubscribeBossHidden = null
 let unsubscribeBossRestored = null
 let unsubscribePopoverChildClose = null
@@ -614,6 +622,9 @@ onMounted(() => {
   unsubscribeStealthWindowLeft = window.api.onStealthWindowLeft?.((payload) => {
     void stealthWindowLeaveWatcher.handleWindowLeftCandidate(payload)
   })
+  unsubscribeStealthWindowReentered = window.api.onStealthWindowReentered?.((payload) => {
+    void stealthWindowLeaveWatcher.handleWindowReentered(payload)
+  })
   unsubscribeBossHidden = window.api.onBossHidden?.(() => {
     void stealthWindowLeaveWatcher.disable({ force: true })
     void stealthAutoHide.restoreStealthInteraction('boss-hidden')
@@ -663,6 +674,8 @@ onUnmounted(() => {
   unsubscribeBrowserContentPointerDown = null
   unsubscribeStealthWindowLeft?.()
   unsubscribeStealthWindowLeft = null
+  unsubscribeStealthWindowReentered?.()
+  unsubscribeStealthWindowReentered = null
   unsubscribeBossHidden?.()
   unsubscribeBossHidden = null
   unsubscribeBossRestored?.()

@@ -303,6 +303,9 @@ function queueCss(fn) {
   return cssChain
 }
 
+let pendingContentOpacity = null
+let contentOpacityFlushQueued = false
+
 function normalizeOpacityValue(value, fallback = 1) {
   const next = Number(value)
   if (!Number.isFinite(next)) return fallback
@@ -1070,7 +1073,21 @@ async function _applyContentOpacity(value) {
 }
 
 export function applyContentOpacity(value) {
-  return queueCss(() => _applyContentOpacity(value))
+  pendingContentOpacity = normalizeOpacityValue(value)
+  if (contentOpacityFlushQueued) return cssChain
+
+  contentOpacityFlushQueued = true
+  return queueCss(async () => {
+    try {
+      while (pendingContentOpacity != null) {
+        const latestOpacity = pendingContentOpacity
+        pendingContentOpacity = null
+        await _applyContentOpacity(latestOpacity)
+      }
+    } finally {
+      contentOpacityFlushQueued = false
+    }
+  })
 }
 
 export function applyStealthContentOpacityMultiplier(value) {

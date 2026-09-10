@@ -22,6 +22,7 @@
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint . --max-warnings=0",
+    "test": "node --experimental-default-type=module --test",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "electron-vite build",

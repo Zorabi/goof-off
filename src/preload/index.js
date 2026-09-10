@@ -170,7 +170,10 @@ const api = {
   setShadowPolicy: (shouldHide) => ipcRenderer.invoke('window:set-shadow-policy', shouldHide),
   windowSetMousePassthrough: (payload) =>
     ipcRenderer.invoke('window:set-mouse-passthrough', payload),
-  windowEnableStealthLeaveWatcher: () => ipcRenderer.invoke('window:stealth-leave-watcher-enable'),
+  windowEnableStealthLeaveWatcher: (payload = {}) =>
+    ipcRenderer.invoke('window:stealth-leave-watcher-enable', {
+      mode: payload?.mode === 'reentry' ? 'reentry' : 'leave'
+    }),
   windowDisableStealthLeaveWatcher: (payload = {}) => {
     const disablePayload = { watcherEpoch: Number(payload?.watcherEpoch) }
     if (payload?.preserveReviewEpoch === true) disablePayload.preserveReviewEpoch = true
@@ -196,6 +199,11 @@ const api = {
     const handler = (_event, payload) => callback(payload)
     ipcRenderer.on('stealth:auto-hide-window-left', handler)
     return () => ipcRenderer.removeListener('stealth:auto-hide-window-left', handler)
+  },
+  onStealthWindowReentered: (callback) => {
+    const handler = (_event, payload) => callback(payload)
+    ipcRenderer.on('stealth:auto-hide-window-reenter', handler)
+    return () => ipcRenderer.removeListener('stealth:auto-hide-window-reenter', handler)
   },
   onStealthBodyVisibilityRestore: (callback) => {
     const handler = (_event, payload) => callback(payload)

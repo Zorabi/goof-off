@@ -6,6 +6,13 @@ export const DEFAULT_TRANSPARENCY_PREFS = Object.freeze({
   contentLevel: 0.6
 })
 
+// The main window is frameless and always uses a transparent native surface.  A
+// zero interface opacity therefore leaves an invisible window that still owns
+// focus and intercepts pointer input. Keep enough UI visible to provide a
+// reliable recovery path; body auto-hide uses a separate runtime multiplier
+// when a fully hidden, click-through state is intentional.
+export const MIN_INTERFACE_OPACITY = 0.1
+
 const BOOLEAN_KEYS = ['merged', 'windowEnabled', 'contentEnabled']
 
 function isPlainObject(value) {
@@ -30,7 +37,7 @@ export function sanitizeTransparencyPrefsPatch(patch) {
     out.windowLevel = clamp(patch.windowLevel, 0.1, 0.95)
   }
   if ('contentLevel' in patch && isFiniteNumber(patch.contentLevel)) {
-    out.contentLevel = clamp(patch.contentLevel, 0, 0.95)
+    out.contentLevel = clamp(patch.contentLevel, MIN_INTERFACE_OPACITY, 0.95)
   }
   return out
 }

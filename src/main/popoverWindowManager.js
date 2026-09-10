@@ -371,6 +371,7 @@ function createChildWindow() {
     skipTaskbar: true,
     parent: mainWindow,
     modal: false,
+    acceptFirstMouse: true,
     webPreferences: {
       preload: join(__dirname, '../preload/popover.js'),
       sandbox: false

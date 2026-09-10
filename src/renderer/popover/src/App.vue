@@ -186,6 +186,7 @@ onBeforeUnmount(() => {
       @update:wheel-speed="send({ id: 'visual', action: 'set-wheel-speed', value: $event })"
       @update:plain-view="send({ id: 'visual', action: 'set-plain-view', value: $event })"
       @update:hide-media="send({ id: 'visual', action: 'set-hide-media', value: $event })"
+      @range-commit="commitVisual"
       @pointerup.capture="commitVisual"
       @change.capture="commitVisual"
     />
@@ -372,7 +373,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   width: 100%;
-  height: 30px;
+  min-height: 44px;
   padding: 0 8px;
   border: none;
   border-radius: var(--radius-button);
@@ -381,6 +382,7 @@ onBeforeUnmount(() => {
   font-size: var(--text-meta-size);
   text-align: left;
   cursor: pointer;
+  touch-action: manipulation;
   white-space: nowrap;
   position: relative;
 }
@@ -392,6 +394,10 @@ onBeforeUnmount(() => {
 .more-menu-child__item:hover:not(:disabled) {
   background: var(--effective-popover-hover-bg, var(--color-hover-bg));
   color: var(--text-primary);
+}
+.more-menu-child__item:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
 }
 .more-menu-child__item.is-active {
   background: color-mix(

@@ -8,10 +8,10 @@ function getValue(source, key, fallback) {
   return value?.[key] ?? fallback
 }
 
-function isNormalReadingContent(appState) {
+function isNormalAutoHideContent(appState) {
   const content = getValue(appState, 'content', 'home')
   const form = getValue(appState, 'form', 'normal')
-  return form === 'normal' && (content === 'web' || content === 'file')
+  return form === 'normal' && ['home', 'history', 'web', 'file'].includes(content)
 }
 
 function isMiniEligibleFileKind(appState) {
@@ -37,7 +37,7 @@ export function useChromeVisibility({
     )
   })
   const normalToolbarAutoHide = computed(
-    () => isNormalReadingContent(appState) && unref(toolbarAutoHideEnabled) === true
+    () => isNormalAutoHideContent(appState) && unref(toolbarAutoHideEnabled) === true
   )
   const stealthEnabled = computed(() => normalToolbarAutoHide.value || isMiniFile.value)
   const usesDomHotZones = computed(

@@ -445,6 +445,10 @@ input[type='checkbox']:disabled {
   color: var(--prefs-text-strong);
   font-size: var(--prefs-fs-control);
   cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    background var(--motion-micro) ease,
+    box-shadow var(--motion-micro) ease;
 }
 
 .prefs-select__value {
@@ -481,12 +485,14 @@ input[type='checkbox']:disabled {
 .prefs-select__menu {
   position: fixed;
   z-index: 1000;
-  max-height: 210px;
+  max-height: 264px;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 4px;
   border: 1px solid var(--prefs-hairline);
   border-radius: var(--prefs-radius);
   background: var(--prefs-bg-base);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
   -webkit-app-region: no-drag;
 }
 
@@ -496,8 +502,8 @@ input[type='checkbox']:disabled {
   justify-content: space-between;
   gap: 12px;
   width: 100%;
-  min-height: 28px;
-  padding: 0 7px;
+  min-height: 44px;
+  padding: 0 10px;
   border: 0;
   border-radius: var(--prefs-radius-kbd);
   background: transparent;
@@ -506,6 +512,10 @@ input[type='checkbox']:disabled {
   text-align: left;
   white-space: nowrap;
   cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    background var(--motion-micro) ease,
+    color var(--motion-micro) ease;
 }
 
 .prefs-select__option.is-active {
@@ -514,7 +524,12 @@ input[type='checkbox']:disabled {
 }
 
 .prefs-select__option.is-selected {
+  background: color-mix(in srgb, var(--prefs-accent) 10%, transparent);
   color: var(--prefs-text-strong);
+}
+
+.prefs-select__option.is-selected.is-active {
+  background: color-mix(in srgb, var(--prefs-accent) 17%, transparent);
 }
 
 .prefs-select__option:focus-visible {
@@ -543,10 +558,11 @@ input[type='checkbox']:disabled {
 .prefs-range-new {
   flex: 1 1 auto;
   min-width: 0;
-  height: 13px;
+  height: var(--prefs-control-h);
   appearance: none;
   background: none;
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 .prefs-range-new::-webkit-slider-runnable-track {

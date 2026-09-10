@@ -1,6 +1,7 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import BaseSwitch from './base/Switch.vue'
+import { MIN_INTERFACE_OPACITY } from '../../../shared/transparencyPrefs.js'
 
 const props = defineProps({
   merged: { type: Boolean, required: true },
@@ -23,13 +24,85 @@ const emit = defineEmits([
   'update:zoom',
   'update:wheelSpeed',
   'update:plainView',
-  'update:hideMedia'
+  'update:hideMedia',
+  'range-commit'
 ])
+
+const contentLevelDraft = ref(props.contentLevel)
+const zoomDraft = ref(props.zoom)
+const wheelSpeedDraft = ref(props.wheelSpeed)
+const activeRange = ref(null)
+const pendingRangeEmits = new Map()
+let rangeFrame = null
+
+function syncDraft(field, value) {
+  if (activeRange.value === field) return
+  if (field === 'content-level') contentLevelDraft.value = value
+  else if (field === 'zoom') zoomDraft.value = value
+  else if (field === 'wheel-speed') wheelSpeedDraft.value = value
+}
+
+watch(
+  () => props.contentLevel,
+  (value) => syncDraft('content-level', value)
+)
+watch(
+  () => props.zoom,
+  (value) => syncDraft('zoom', value)
+)
+watch(
+  () => props.wheelSpeed,
+  (value) => syncDraft('wheel-speed', value)
+)
+
+function flushRangeEmits() {
+  if (rangeFrame != null) cancelAnimationFrame(rangeFrame)
+  rangeFrame = null
+  for (const [eventName, value] of pendingRangeEmits) emit(eventName, value)
+  pendingRangeEmits.clear()
+}
+
+function scheduleRangeEmit(eventName, value) {
+  pendingRangeEmits.set(eventName, value)
+  if (rangeFrame != null) return
+  rangeFrame = requestAnimationFrame(flushRangeEmits)
+}
+
+function setRangeDraft(field, value) {
+  if (field === 'content-level') contentLevelDraft.value = value
+  else if (field === 'zoom') zoomDraft.value = value
+  else wheelSpeedDraft.value = value
+}
+
+function onRangeInput(field, eventName, event) {
+  const value = Number.parseFloat(event.target.value)
+  if (!Number.isFinite(value)) return
+  activeRange.value = field
+  setRangeDraft(field, value)
+  scheduleRangeEmit(eventName, value)
+}
+
+function commitRange(field, eventName, event) {
+  onRangeInput(field, eventName, event)
+  flushRangeEmits()
+  activeRange.value = null
+  emit('range-commit', field)
+}
+
+onBeforeUnmount(flushRangeEmits)
 
 const plainViewVisible = computed(
   () => !props.merged && props.webControlsVisible && props.windowEnabled
 )
-const contentLevelPercent = computed(() => `${Math.round(props.contentLevel * 100)}%`)
+const contentLevelPercent = computed(() => `${Math.round(contentLevelDraft.value * 100)}%`)
+const contentLevelDisabled = computed(
+  () => props.contentToggleDisabled || props.contentEnabled !== true
+)
+const contentLevelTitle = computed(() => {
+  if (props.contentToggleDisabled) return '需先开启背景隐去'
+  if (!props.contentEnabled) return '需先开启界面淡化'
+  return ''
+})
 const contentToggleTitle = computed(() => {
   if (!props.contentToggleDisabled) return ''
   return '需先开启背景隐去'
@@ -37,7 +110,10 @@ const contentToggleTitle = computed(() => {
 </script>
 
 <template>
-  <div class="visual-control-panel" :class="{ embedded: props.embedded }">
+  <div
+    class="visual-control-panel"
+    :class="{ embedded: props.embedded, 'is-range-adjusting': activeRange !== null }"
+  >
     <template v-if="props.merged">
       <BaseSwitch
         label="隐身阅读"
@@ -67,11 +143,15 @@ const contentToggleTitle = computed(() => {
       <input
         aria-label="界面淡化强度"
         type="range"
-        min="0"
+        :min="MIN_INTERFACE_OPACITY"
         max="0.95"
         step="0.01"
-        :value="props.contentLevel"
-        @input="emit('update:contentLevel', parseFloat($event.target.value))"
+        :value="contentLevelDraft"
+        :disabled="contentLevelDisabled"
+        :title="contentLevelTitle"
+        @input="onRangeInput('content-level', 'update:contentLevel', $event)"
+        @change="commitRange('content-level', 'update:contentLevel', $event)"
+        @pointercancel="commitRange('content-level', 'update:contentLevel', $event)"
       />
     </div>
     <template v-if="props.webControlsVisible">
@@ -79,29 +159,33 @@ const contentToggleTitle = computed(() => {
       <div class="slider-group">
         <label class="slider-label">
           <span>页面缩放</span>
-          <span class="slider-value">{{ props.zoom.toFixed(1) }}x</span>
+          <span class="slider-value">{{ zoomDraft.toFixed(1) }}x</span>
         </label>
         <input
           type="range"
           min="0.5"
           max="2"
           step="0.1"
-          :value="props.zoom"
-          @input="emit('update:zoom', parseFloat($event.target.value))"
+          :value="zoomDraft"
+          @input="onRangeInput('zoom', 'update:zoom', $event)"
+          @change="commitRange('zoom', 'update:zoom', $event)"
+          @pointercancel="commitRange('zoom', 'update:zoom', $event)"
         />
       </div>
       <div class="slider-group">
         <label class="slider-label">
           <span>滚轮速度</span>
-          <span class="slider-value">{{ props.wheelSpeed.toFixed(1) }}x</span>
+          <span class="slider-value">{{ wheelSpeedDraft.toFixed(1) }}x</span>
         </label>
         <input
           type="range"
           min="0.1"
           max="2"
           step="0.1"
-          :value="props.wheelSpeed"
-          @input="emit('update:wheelSpeed', parseFloat($event.target.value))"
+          :value="wheelSpeedDraft"
+          @input="onRangeInput('wheel-speed', 'update:wheelSpeed', $event)"
+          @change="commitRange('wheel-speed', 'update:wheelSpeed', $event)"
+          @pointercancel="commitRange('wheel-speed', 'update:wheelSpeed', $event)"
         />
       </div>
       <BaseSwitch
@@ -177,6 +261,23 @@ const contentToggleTitle = computed(() => {
 
 input[type='range'] {
   width: 100%;
+  height: 26px;
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--toolbar-border);
+}
+
+input[type='range']::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
 }
 
 input[type='range']:disabled {

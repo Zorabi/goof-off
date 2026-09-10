@@ -102,12 +102,12 @@ npm run dev
 
 Goof Off uses a frameless window on both macOS and Windows 11. Hold one of these drag regions and move the pointer:
 
-| Current state | Where to drag |
-| --- | --- |
-| **Normal window** | Use a blank part of the top bar that contains no button or input; the blank area at the upper left is the easiest target. Buttons, the address field, and document content remain available for normal interaction and cannot move the window. |
-| **Toolbars are auto-hidden** | Use the narrow transparent drag strip, about 6 px high, along the very top edge. You can also move the pointer over a top-bar button area or near the bottom edge of the top bar, then drag a blank part of the restored bar. |
-| **TXT / EPUB Mini Mode** | Drag the file name or another blank part of the visible top bar, or use either narrow transparent side rail between the top and bottom bars. |
-| **Body is hidden with click-through** | First move the pointer into a button area in the top or bottom bar to restore the body and disable click-through, then use one of the regions above. Blank drag regions do not restore the hidden body. |
+| Current state                         | Where to drag                                                                                                                                                                                                                                  |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Normal window**                     | Use a blank part of the top bar that contains no button or input; the blank area at the upper left is the easiest target. Buttons, the address field, and document content remain available for normal interaction and cannot move the window. |
+| **Toolbars are auto-hidden**          | Use the narrow transparent drag strip, about 6 px high, along the very top edge. You can also move the pointer over a top-bar button area or near the bottom edge of the top bar, then drag a blank part of the restored bar.                  |
+| **TXT / EPUB Mini Mode**              | Drag the file name or another blank part of the visible top bar, or use either narrow transparent side rail between the top and bottom bars.                                                                                                   |
+| **Body is hidden with click-through** | First move the pointer into the full-width re-entry band (about 44 px) at the top or bottom edge to restore the body and disable click-through, then use one of the regions above.                                                             |
 
 > Hide Background, Fade UI, and Always on Top do not change how window dragging works.
 
@@ -119,19 +119,19 @@ Goof Off uses a frameless window on both macOS and Windows 11. Hold one of these
 4. When the pointer leaves the window, the enabled toolbars or body content automatically disappear. While the body is hidden, macOS and Windows 11 also enable mouse click-through, so clicks go directly to the window underneath.
 
 - **Bring back the toolbars**: Move the pointer over a button area in the top or bottom bar, or near the bottom edge of the top bar or the top edge of the bottom bar, to bring back the corresponding toolbar. Blank drag regions do not trigger it. Hidden toolbars keep their original layout space, so the document does not expand into those areas.
-- **Bring back the body**: Once the body is hidden, you must move the pointer into a button area in the top or bottom bar to restore the reading content. Moving only near the toolbar edges restores the toolbars but not the body; clicking the underlying window or pressing a boss key does not restore it either.
+- **Bring back the body**: Once the body is hidden, move the pointer into the full-width 44 px re-entry band at the top or bottom edge to restore the reading content. The top drag strip is included; the body itself remains click-through until it is restored.
 - **Web media**: Any audio or video playing on a web page is paused before the page body is hidden. Playback does not resume automatically when the body returns.
 
-> Auto-hide works only in a normal web or file reading view when Hide Background is enabled. You can configure the options in advance on the home and history pages, while Mini Mode does not display them. Both switches last only for the current app session and are not written to long-term preferences. Disabling Hide Background temporarily suspends auto-hide without resetting the current session's choices; enabling it again restores those choices.
+> Auto-hide works in normal Home, History, web, and file views when Hide Background is enabled, while Mini Mode does not display the options. Both switches last only for the current app session and are not written to long-term preferences. Disabling Hide Background temporarily suspends auto-hide without resetting the current session's choices; enabling it again restores those choices.
 
 ### Boss keys
 
 Boss keys are system-wide global shortcuts, so they continue to work even while the window is hidden:
 
-| Action | Windows | macOS | Result |
-| --- | --- | --- | --- |
-| Hide / restore | `Ctrl + \` | `⌘ + \` | Hides the window instantly; press again to restore it |
-| Kill switch | `Shift + Ctrl + \` | `⇧ + ⌘ + \` | Quits the app immediately without confirmation |
+| Action         | Windows            | macOS       | Result                                                |
+| -------------- | ------------------ | ----------- | ----------------------------------------------------- |
+| Hide / restore | `Ctrl + \`         | `⌘ + \`     | Hides the window instantly; press again to restore it |
+| Kill switch    | `Shift + Ctrl + \` | `⇧ + ⌘ + \` | Quits the app immediately without confirmation        |
 
 Rebind them under “偏好设置 → 快捷键 → 老板键” (Preferences → Shortcuts → Boss Keys). If you cannot find the window, you can also click the system tray icon and choose “恢复显示” (Restore).
 
@@ -147,26 +147,26 @@ While reading TXT or EPUB, choose “更多 → 精简模式” (More → Mini M
 
 ## Feature Overview
 
-| Content | Core capabilities |
-| --- | --- |
-| **Web** | Smart address bar, suggestions from history and favorites, iPhone / iPad / macOS / Windows user agents (UA), per-site overrides, Plain View (softened page backgrounds), hide images and video, hide scrollbars, page zoom, and wheel-speed control |
-| **TXT** | Hierarchical chapter list, full-text search, encoding detection and switching, font size / line height / font family, auto page-turn, background parsing for large files, and on-demand rendering |
-| **EPUB** | Table of contents, book-wide search, scrolling / paginated modes, font size / line height / font family, auto page-turn, one-click image visibility (hidden by default), and Mini Mode; DRM-protected books and fixed-layout comics or art books are not supported |
-| **PDF** | Embedded bookmark outline, Fit Width / Fit Page / 25%–400% zoom, page jumping, on-demand streaming, and full-page custom duotone colors; full-text search and text selection, forms and printing, and Mini Mode are not supported |
-| **History and restore** | Web and file history each keep the latest 100 entries and can be deleted individually, cleared, or disabled completely; each file stores its own progress, while commonly used typography and modes are saved as preferences |
+| Content                 | Core capabilities                                                                                                                                                                                                                                                  |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Web**                 | Smart address bar, suggestions from history and favorites, iPhone / iPad / macOS / Windows user agents (UA), per-site overrides, Plain View (softened page backgrounds), hide images and video, hide scrollbars, page zoom, and wheel-speed control                |
+| **TXT**                 | Hierarchical chapter list, full-text search, encoding detection and switching, font size / line height / font family, auto page-turn, background parsing for large files, and on-demand rendering                                                                  |
+| **EPUB**                | Table of contents, book-wide search, scrolling / paginated modes, font size / line height / font family, auto page-turn, one-click image visibility (hidden by default), and Mini Mode; DRM-protected books and fixed-layout comics or art books are not supported |
+| **PDF**                 | Embedded bookmark outline, Fit Width / Fit Page / 25%–400% zoom, page jumping, on-demand streaming, and full-page custom duotone colors; full-text search and text selection, forms and printing, and Mini Mode are not supported                                  |
+| **History and restore** | Web and file history each keep the latest 100 entries and can be deleted individually, cleared, or disabled completely; each file stores its own progress, while commonly used typography and modes are saved as preferences                                       |
 
 ## Frequently Used Shortcuts
 
-| Keys | Action |
-| --- | --- |
-| `Ctrl/⌘ + O` | Open TXT |
-| `Ctrl/⌘ + Shift + O` | Open EPUB |
-| `Ctrl/⌘ + Alt + O` | Open PDF |
-| `Space` / `Shift + Space` | Next / previous page; configurable in Preferences |
-| `Ctrl/⌘ + F` | Full-text search in TXT / EPUB |
-| `Ctrl/⌘ + =` / `-` / `0` | Zoom in / out / reset PDF zoom |
-| `Ctrl/⌘ + ,` | Open Preferences |
-| `Esc` | Dismiss the active panel, menu, or input field one layer at a time |
+| Keys                      | Action                                                             |
+| ------------------------- | ------------------------------------------------------------------ |
+| `Ctrl/⌘ + O`              | Open TXT                                                           |
+| `Ctrl/⌘ + Shift + O`      | Open EPUB                                                          |
+| `Ctrl/⌘ + Alt + O`        | Open PDF                                                           |
+| `Space` / `Shift + Space` | Next / previous page; configurable in Preferences                  |
+| `Ctrl/⌘ + F`              | Full-text search in TXT / EPUB                                     |
+| `Ctrl/⌘ + =` / `-` / `0`  | Zoom in / out / reset PDF zoom                                     |
+| `Ctrl/⌘ + ,`              | Open Preferences                                                   |
+| `Esc`                     | Dismiss the active panel, menu, or input field one layer at a time |
 
 <details>
 <summary><strong>What else can I change in Preferences?</strong></summary>
@@ -190,7 +190,7 @@ Click “历史” (History) on the home page to switch between web and file his
 <details>
 <summary><strong>The window suddenly disappeared. How do I get it back?</strong></summary>
 
-If the window is still present but the reading content or toolbars have disappeared, auto-hide is active. Move the pointer into a button area in the top or bottom bar; boss keys cannot restore auto-hidden content. If the entire window is gone, press the Hide / Restore boss key again (default `Ctrl+\` or `⌘+\`), or click the Goof Off icon in the system tray and choose “恢复显示” (Restore).
+If the window is still present but the reading content or toolbars have disappeared, auto-hide is active. Move the pointer into the full-width 44 px re-entry band at the top or bottom edge; boss keys cannot restore auto-hidden content. If the entire window is gone, press the Hide / Restore boss key again (default `Ctrl+\` or `⌘+\`), or click the Goof Off icon in the system tray and choose “恢复显示” (Restore).
 
 </details>
 
@@ -235,6 +235,7 @@ npm run dev      # Development mode (HMR)
 npm run build    # Build main / preload / renderer
 npm start        # Preview the build output
 npm run lint     # ESLint; any warning fails the command
+npm test         # Run state and transparency recovery regression tests
 ```
 
 ```text

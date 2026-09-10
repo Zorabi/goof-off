@@ -1,3 +1,5 @@
+import { MIN_INTERFACE_OPACITY } from './transparencyPrefs.js'
+
 export const POPOVER_IDS = ['visual', 'encoding', 'pdf-zoom', 'address-suggestions', 'more-menu']
 export const POPUP_PLACEMENTS = ['top', 'bottom', 'left', 'right']
 export const POPOVER_SHIFT_TOLERANCE_DIP = 8
@@ -11,7 +13,9 @@ export const POPOVER_DESIRED_SIZE = Object.freeze({
   'address-suggestions': Object.freeze({ width: 220, height: 260 }),
   'more-menu': Object.freeze({
     width: MORE_MENU_READING_PANEL_CONTENT_WIDTH + MORE_MENU_READING_PANEL_HORIZONTAL_CHROME,
-    height: 172
+    // Five 44px rows plus the separator and shell padding. The child window
+    // still measures and shrinks to the actual item count after rendering.
+    height: 248
   })
 })
 
@@ -142,7 +146,7 @@ export function validatePopoverSnapshot(snapshot) {
     }
     if (
       !isFiniteNumber(snapshot.contentLevel) ||
-      snapshot.contentLevel < 0 ||
+      snapshot.contentLevel < MIN_INTERFACE_OPACITY ||
       snapshot.contentLevel > 0.95
     ) {
       return fail('invalid-content-level')
@@ -231,7 +235,9 @@ export function validatePopoverAction(payload) {
         : fail('invalid-zoom')
     }
     if (payload.action === 'set-content-level') {
-      return isFiniteNumber(payload.value) && payload.value >= 0 && payload.value <= 0.95
+      return isFiniteNumber(payload.value) &&
+        payload.value >= MIN_INTERFACE_OPACITY &&
+        payload.value <= 0.95
         ? ok()
         : fail('invalid-content-level')
     }

@@ -143,5 +143,5 @@ input[type='range']::-webkit-slider-thumb {
 
 .interface-fade-target {
   opacity: var(--interface-opacity, 1);
-  transition: opacity var(--motion-content) ease;
+  transition: opacity var(--motion-live-opacity) ease-out;
 }

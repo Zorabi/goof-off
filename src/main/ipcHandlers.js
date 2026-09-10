@@ -619,7 +619,7 @@ export function registerIpcHandlers({
       const allowedPayload = payload.patch
         ? (() => {
             const allowedKeys = fromPreferences
-              ? ['merged', 'windowLevel', 'contentLevel']
+              ? ['merged', 'windowEnabled', 'contentEnabled', 'windowLevel', 'contentLevel']
               : ['contentLevel']
             const patch = Object.fromEntries(
               allowedKeys
@@ -1256,9 +1256,9 @@ export function registerIpcHandlers({
     })
   })
 
-  registerLoggedHandle('window:stealth-leave-watcher-enable', async (e) => {
+  registerLoggedHandle('window:stealth-leave-watcher-enable', async (e, payload = {}) => {
     if (!isMainSender(e.sender)) return { ok: false, reason: 'forbidden' }
-    return windowLeaveWatcher.enableWindowLeaveWatcher()
+    return windowLeaveWatcher.enableWindowLeaveWatcher(payload)
   })
 
   registerLoggedHandle('window:stealth-leave-watcher-disable', async (e, payload = {}) => {

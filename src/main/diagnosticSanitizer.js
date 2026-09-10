@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import path from 'node:path'
+import { MIN_INTERFACE_OPACITY } from '../shared/transparencyPrefs.js'
 
 const MAX_STRING = 1000
 const MAX_ARRAY = 30
@@ -254,7 +255,13 @@ const BOOKMARK_ACTIONS = new Set(['add', 'remove'])
 const FONT_KINDS = new Set(['txt', 'epub'])
 const FONT_FAMILIES = new Set(['default', 'serif', 'sans', 'kaiti', 'mono'])
 const TRANSPARENCY_KINDS = new Set(['window', 'content', 'unified'])
-const TRANSPARENCY_PREF_KEYS = new Set(['merged', 'windowLevel', 'contentLevel'])
+const TRANSPARENCY_PREF_KEYS = new Set([
+  'merged',
+  'windowEnabled',
+  'contentEnabled',
+  'windowLevel',
+  'contentLevel'
+])
 const STEALTH_AUTO_HIDE_CAPABILITIES = new Set([
   'toolbar-hot-zone',
   'body-fade',
@@ -291,7 +298,7 @@ const SEARCH_ERROR_STAGES = new Set([
 const NUMERIC_RANGES = Object.freeze({
   wheelSpeed: { min: 0.1, max: 2.0, fallback: 1 },
   windowLevel: { min: 0.1, max: 0.95, fallback: 0.7 },
-  contentLevel: { min: 0, max: 0.95, fallback: 0.6 }
+  contentLevel: { min: MIN_INTERFACE_OPACITY, max: 0.95, fallback: 0.6 }
 })
 
 function sanitizeSource(value) {
@@ -390,6 +397,8 @@ function sanitizeTransparencyValues(values = {}, keys = []) {
   const out = {}
   for (const key of keys) {
     if (key === 'merged') out.merged = Boolean(values.merged)
+    if (key === 'windowEnabled') out.windowEnabled = Boolean(values.windowEnabled)
+    if (key === 'contentEnabled') out.contentEnabled = Boolean(values.contentEnabled)
     if (key === 'windowLevel') out.windowLevel = sanitizeTransparencyLevel(key, values.windowLevel)
     if (key === 'contentLevel')
       out.contentLevel = sanitizeTransparencyLevel(key, values.contentLevel)

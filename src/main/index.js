@@ -15,6 +15,7 @@ import { diagnosticLogger } from './diagnosticLogger.js'
 import { getTransparencyPrefs, initTransparencyPrefs } from './transparencyService.js'
 import { syncPlainViewForMergedTransparency } from './transparencySceneSync.js'
 import { applySystemVisibilityPrefs, getSystemPrefs } from './systemVisibilityPrefs.js'
+import { restoreMousePassthrough } from './windowMousePassthrough.js'
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -120,7 +121,8 @@ app.whenReady().then(async () => {
     pdfService,
     epubService,
     applySystemVisibilityPrefs,
-    getSystemPrefs
+    getSystemPrefs,
+    restoreMousePassthrough
   })
 
   await applySystemVisibilityPrefs(getSystemPrefs(), { win: null })

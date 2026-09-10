@@ -51,10 +51,10 @@ export function buildThemeSnapshot(isDark = document.documentElement.classList.c
 
 export function createVisualActionScheduler(applyAction, delay = 50) {
   let timer = null
-  let pending = null
+  const pendingByAction = new Map()
 
   function schedule(action) {
-    pending = action
+    pendingByAction.set(action?.action || 'default', action)
     if (timer) return
     timer = setTimeout(commit, delay)
   }
@@ -62,10 +62,10 @@ export function createVisualActionScheduler(applyAction, delay = 50) {
   function commit() {
     if (timer) clearTimeout(timer)
     timer = null
-    if (!pending) return
-    const action = pending
-    pending = null
-    applyAction(action)
+    if (pendingByAction.size === 0) return
+    const actions = [...pendingByAction.values()]
+    pendingByAction.clear()
+    for (const action of actions) applyAction(action)
   }
 
   function dispose() {

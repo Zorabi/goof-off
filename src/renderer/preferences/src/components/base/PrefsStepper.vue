@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
 const props = defineProps({
   modelValue: { type: Number, required: true },
@@ -15,6 +15,7 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue'])
 const focused = ref(false)
+let interactionSettleTimer = null
 
 function round2(value) {
   return Math.round(value * 100) / 100
@@ -26,6 +27,7 @@ function toDisplay(modelValue) {
 
 const draftDisplayValue = ref(toDisplay(props.modelValue))
 watch([() => props.modelValue, () => props.scale, () => props.syncKey], ([modelValue]) => {
+  if (interactionSettleTimer != null) return
   draftDisplayValue.value = toDisplay(modelValue)
 })
 
@@ -44,8 +46,17 @@ function commitDisplay(value) {
   const next = clampDisplay(round2(value))
   draftDisplayValue.value = next
   emit('update:modelValue', props.scale === 1 ? next : round2(next / props.scale))
+  if (interactionSettleTimer != null) clearTimeout(interactionSettleTimer)
+  interactionSettleTimer = setTimeout(() => {
+    interactionSettleTimer = null
+    draftDisplayValue.value = toDisplay(props.modelValue)
+  }, 180)
   return next
 }
+
+onBeforeUnmount(() => {
+  if (interactionSettleTimer != null) clearTimeout(interactionSettleTimer)
+})
 
 function bump(direction) {
   if (props.disabled) return

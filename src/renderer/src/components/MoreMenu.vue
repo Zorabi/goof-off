@@ -470,7 +470,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   width: 100%;
-  height: 30px;
+  min-height: 44px;
   padding: 0 8px;
   border: none;
   border-radius: var(--radius-button);
@@ -479,6 +479,7 @@ onBeforeUnmount(() => {
   font-size: var(--text-meta-size);
   text-align: left;
   cursor: pointer;
+  touch-action: manipulation;
   white-space: nowrap;
   letter-spacing: 0;
   position: relative;
@@ -492,6 +493,11 @@ onBeforeUnmount(() => {
 .more-menu-panel button:hover:not(:disabled) {
   background: var(--effective-popover-hover-bg, var(--color-hover-bg));
   color: var(--color-text-primary);
+}
+
+.more-menu-panel button:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
 }
 
 .more-menu-separator {

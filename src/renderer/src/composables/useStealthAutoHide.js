@@ -8,12 +8,6 @@ function readCapability(api) {
   return api?.platformPolicy?.window?.stealthAutoHide || {}
 }
 
-function isNormalReadingState(appState) {
-  return (
-    appState?.form === 'normal' && (appState?.content === 'web' || appState?.content === 'file')
-  )
-}
-
 function isAutoHideControlSurface(appState) {
   return (
     appState?.form === 'normal' &&
@@ -22,6 +16,10 @@ function isAutoHideControlSurface(appState) {
       appState?.content === 'web' ||
       appState?.content === 'file')
   )
+}
+
+function isNormalAutoHideState(appState) {
+  return isAutoHideControlSurface(appState)
 }
 
 function getBodyHideGateLocks(activeLocks) {
@@ -64,7 +62,7 @@ export function useStealthAutoHide({
   const capability = computed(() => readCapability(api))
   const transparencyEnabled = computed(() => transparencyPrefs?.value?.windowEnabled === true)
   const controlsVisible = computed(() => isAutoHideControlSurface(appState))
-  const readingControlsActive = computed(() => isNormalReadingState(appState))
+  const readingControlsActive = computed(() => isNormalAutoHideState(appState))
   const bodyFadeAvailable = computed(() => capability.value.bodyFade === true)
   const bodyClickThroughAvailable = computed(
     () => capability.value.bodyClickThrough === true && !bodyClickThroughRuntimeDisabled.value
@@ -252,26 +250,16 @@ export function useStealthAutoHide({
     return { ok: false, reason }
   }
 
-  async function degradeBodyFade(reason = 'opacity-ipc-failed') {
+  async function degradeBodyFade(reason = 'opacity-ipc-failed', from = 'body-fade') {
     invalidateHideAttempts()
     clearResourceOwnership()
     toolbarAutoHideEnabled.value = true
     bodyAutoHideEnabled.value = false
     bodyHidden.value = false
-    mousePassthroughActive.value = false
     bodyOpacityMultiplier.value = 1
-    try {
-      await api?.windowSetMousePassthrough?.({ enabled: false })
-      await api?.browserSetStealthContentOpacityMultiplier?.(1)
-    } catch {
-      // Best effort cleanup only; the degraded diagnostic below is the actionable signal.
-    }
-    showOnce('body-fade-degraded', '主体淡出不可用，已降级为仅工具栏')
-    logDiagnostic(
-      'stealth_auto_hide.degraded',
-      { from: 'body-fade', to: 'toolbar-only', reason },
-      'warn'
-    )
+    await restoreStealthInteraction('body-hide-degraded', { modeBefore: from })
+    showOnce('body-fade-degraded', '主体自动隐藏不可用，已恢复内容并保留工具栏自动隐藏')
+    logDiagnostic('stealth_auto_hide.degraded', { from, to: 'toolbar-only', reason }, 'warn')
     return { ok: false, reason }
   }
 
@@ -310,19 +298,7 @@ export function useStealthAutoHide({
       }
       if (passthroughFailure) {
         bodyClickThroughRuntimeDisabled.value = true
-        mousePassthroughActive.value = false
-        showOnce('click-through-degraded', '主体穿透不可用，已降级为淡出')
-        logDiagnostic(
-          'stealth_auto_hide.degraded',
-          { from: 'click-through', to: 'body-fade', reason: passthroughFailure },
-          'warn'
-        )
-        const fallbackResult = await applyBodyOpacityMultiplier(BODY_HIDDEN_MULTIPLIER)
-        markOpacityWriteApplied(attempt, fallbackResult)
-        if (!canContinueAfterHidden(attempt)) return abortStaleHideAttempt(attempt)
-        if (!fallbackResult.ok) return degradeBodyFade(fallbackResult.reason)
-        bodyOpacityMultiplier.value = BODY_HIDDEN_MULTIPLIER
-        markBodyOpacityMultiplierApplied(attempt)
+        return degradeBodyFade(passthroughFailure, 'click-through')
       } else {
         mousePassthroughActive.value = true
       }
@@ -361,15 +337,21 @@ export function useStealthAutoHide({
     invalidateHideAttempts()
     clearResourceOwnership()
 
+    let passthroughRestored = false
     try {
       const passthrough = await api?.windowSetMousePassthrough?.({ enabled: false })
       if (passthrough?.ok === false) {
         failures.push(passthrough.reason || 'passthrough-restore-failed')
+      } else {
+        passthroughRestored = true
       }
     } catch (error) {
       failures.push(error?.message || 'passthrough-restore-failed')
     } finally {
-      mousePassthroughActive.value = false
+      // Keep the recovery marker when the native call failed. Subsequent
+      // activity/reveal events can then retry instead of assuming the window is
+      // interactive while it may still ignore input.
+      mousePassthroughActive.value = !passthroughRestored
     }
 
     if (shouldRestoreWebContentsOpacity) {
@@ -466,7 +448,7 @@ export function useStealthAutoHide({
   }
 
   function notifyActivity(reason = 'activity') {
-    if (bodyHidden.value) {
+    if (bodyHidden.value || hasRestorableStealthState()) {
       void restoreStealthInteraction(reason)
       return
     }

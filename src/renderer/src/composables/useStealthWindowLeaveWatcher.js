@@ -3,19 +3,28 @@ import { computed, ref, unref, watch } from 'vue'
 export function useStealthWindowLeaveWatcher({
   api = globalThis.window?.api,
   armed,
+  revealArmed = ref(false),
   readingTargetKey,
   canHideIgnoringFocus,
-  requestBodyHideForWindowLeave
+  requestBodyHideForWindowLeave,
+  requestBodyReveal = () => Promise.resolve({ ok: false, reason: 'reveal-unavailable' })
 }) {
   const currentWatcherEpoch = ref(null)
+  const currentWatcherMode = ref(null)
   let enabling = null
   let enableGeneration = 0
   let disposed = false
   let pendingReviews = 0
   let disableAfterPendingReview = false
   let samplingStoppedForPendingReview = false
+  let revealPending = null
 
   const isArmed = computed(() => unref(armed) === true)
+  const trackingMode = computed(() => {
+    if (unref(revealArmed) === true) return 'reentry'
+    if (isArmed.value) return 'leave'
+    return null
+  })
 
   async function invokeWatcherIpc(operation, failureReason) {
     try {
@@ -26,18 +35,22 @@ export function useStealthWindowLeaveWatcher({
   }
 
   async function enable() {
-    if (disposed || !isArmed.value || currentWatcherEpoch.value != null || enabling) return
+    const requestedMode = trackingMode.value
+    if (disposed || !requestedMode || currentWatcherEpoch.value != null || enabling) return
     const generation = ++enableGeneration
     const pendingEnable = invokeWatcherIpc(
-      () => api?.windowEnableStealthLeaveWatcher?.(),
+      () => api?.windowEnableStealthLeaveWatcher?.({ mode: requestedMode }),
       'enable-ipc-failed'
     )
     enabling = pendingEnable
     try {
       const result = await pendingEnable
-      const canAdoptForActiveArming = isArmed.value
+      const canAdoptForActiveArming = trackingMode.value === requestedMode
       const canAdoptForPendingFocusLoss =
-        pendingReviews > 0 && disableAfterPendingReview && currentWatcherEpoch.value == null
+        requestedMode === 'leave' &&
+        pendingReviews > 0 &&
+        disableAfterPendingReview &&
+        currentWatcherEpoch.value == null
       if (
         result?.ok === true &&
         result.watcherEpoch != null &&
@@ -46,6 +59,7 @@ export function useStealthWindowLeaveWatcher({
         (canAdoptForActiveArming || canAdoptForPendingFocusLoss)
       ) {
         currentWatcherEpoch.value = result.watcherEpoch
+        currentWatcherMode.value = requestedMode
         if (canAdoptForActiveArming) {
           disableAfterPendingReview = false
           samplingStoppedForPendingReview = false
@@ -63,7 +77,7 @@ export function useStealthWindowLeaveWatcher({
         enabling = null
         if (
           !disposed &&
-          isArmed.value &&
+          trackingMode.value &&
           currentWatcherEpoch.value == null &&
           generation !== enableGeneration
         ) {
@@ -77,6 +91,7 @@ export function useStealthWindowLeaveWatcher({
     enableGeneration += 1
     const epoch = currentWatcherEpoch.value
     currentWatcherEpoch.value = null
+    currentWatcherMode.value = null
     disableAfterPendingReview = false
     samplingStoppedForPendingReview = false
     if (epoch != null) {
@@ -118,14 +133,18 @@ export function useStealthWindowLeaveWatcher({
     return performDisable()
   }
 
-  async function rebuildForReadingTargetChange() {
+  async function rebuildWatcher() {
     if (disposed) return
     await disable({ force: true })
-    if (!disposed && isArmed.value) void enable()
+    if (!disposed && trackingMode.value) void enable()
   }
 
   function stillCurrent(epoch) {
-    return !disposed && currentWatcherEpoch.value === epoch && (isArmed.value || pendingReviews > 0)
+    return (
+      !disposed &&
+      currentWatcherEpoch.value === epoch &&
+      (trackingMode.value != null || pendingReviews > 0)
+    )
   }
 
   async function runWithPendingReview(review) {
@@ -136,7 +155,7 @@ export function useStealthWindowLeaveWatcher({
       pendingReviews = Math.max(0, pendingReviews - 1)
       if (pendingReviews === 0 && (!isArmed.value || disableAfterPendingReview)) {
         await performDisable()
-        if (!disposed && isArmed.value) void enable()
+        if (!disposed && trackingMode.value) void enable()
       }
     }
   }
@@ -186,7 +205,13 @@ export function useStealthWindowLeaveWatcher({
 
   async function handleWindowLeftCandidate(payload = {}) {
     const epoch = payload.watcherEpoch
-    if (epoch == null || epoch !== currentWatcherEpoch.value) return { ok: false, reason: 'stale' }
+    if (
+      currentWatcherMode.value !== 'leave' ||
+      epoch == null ||
+      epoch !== currentWatcherEpoch.value
+    ) {
+      return { ok: false, reason: 'stale' }
+    }
     return runWithPendingReview(() => reviewLeaveCandidate(payload, 'window-left'))
   }
 
@@ -215,7 +240,30 @@ export function useStealthWindowLeaveWatcher({
     })
   }
 
+  function handleWindowReentered(payload = {}) {
+    const epoch = payload.watcherEpoch
+    if (
+      disposed ||
+      trackingMode.value !== 'reentry' ||
+      currentWatcherMode.value !== 'reentry' ||
+      epoch == null ||
+      epoch !== currentWatcherEpoch.value
+    ) {
+      return Promise.resolve({ ok: false, reason: 'stale' })
+    }
+    if (revealPending) return revealPending
+    const pending = Promise.resolve(requestBodyReveal(`window-reenter-${payload.edge || 'edge'}`))
+    const tracked = pending.finally(() => {
+      if (revealPending === tracked) revealPending = null
+    })
+    revealPending = tracked
+    return tracked
+  }
+
   async function handleFocusLoss() {
+    if (!isArmed.value || currentWatcherMode.value !== 'leave') {
+      return { ok: false, reason: 'watcher-disarmed' }
+    }
     return runWithPendingReview(async () => {
       const epoch = await resolveFocusLossEpoch()
       if (epoch == null) return { ok: false, reason: 'watcher-inactive' }
@@ -237,10 +285,14 @@ export function useStealthWindowLeaveWatcher({
   }
 
   const stop = watch(
-    isArmed,
-    (value) => {
-      if (value) void enable()
-      else void disable()
+    trackingMode,
+    (mode, previousMode) => {
+      if (mode === previousMode) return
+      if (previousMode == null && mode != null && currentWatcherEpoch.value == null) {
+        void enable()
+        return
+      }
+      void rebuildWatcher()
     },
     { immediate: true }
   )
@@ -249,7 +301,7 @@ export function useStealthWindowLeaveWatcher({
     () => unref(readingTargetKey),
     (value, previous) => {
       if (previous === undefined || value === previous) return
-      void rebuildForReadingTargetChange()
+      if (trackingMode.value === 'leave') void rebuildWatcher()
     }
   )
 
@@ -263,10 +315,12 @@ export function useStealthWindowLeaveWatcher({
 
   return {
     currentWatcherEpoch,
+    currentWatcherMode,
     enable,
     disable,
     dispose,
     handleWindowLeftCandidate,
+    handleWindowReentered,
     handleFocusLoss,
     handleDomAuxiliaryCandidate
   }

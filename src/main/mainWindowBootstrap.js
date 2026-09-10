@@ -2,6 +2,14 @@ export function createMainWindowBootstrap(deps) {
   const pendingBootstrapByWindow = new WeakMap()
 
   function revealReadyWindow(win) {
+    // A stale click-through state must never survive a hide/reveal or window
+    // bootstrap. Restore native input handling before exposing the surface.
+    try {
+      Promise.resolve(deps.restoreMousePassthrough?.('window-reveal')).catch(() => {})
+    } catch {
+      // Revealing the recovery UI remains the safest fallback even if the
+      // platform rejects the native input reset.
+    }
     if (win.isMinimized?.()) win.restore()
     if (!win.isVisible?.()) win.show()
     win.setOpacity?.(1)

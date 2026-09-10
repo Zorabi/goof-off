@@ -836,7 +836,13 @@ onBeforeUnmount(() => {
               value: $event
             })
           "
-          @update:zoom="setWebSessionZoom($event)"
+          @update:zoom="
+            handleVisualChildAction({
+              id: 'visual',
+              action: 'set-zoom',
+              value: $event
+            })
+          "
           @update:wheel-speed="
             handleVisualChildAction({
               id: 'visual',
@@ -846,6 +852,7 @@ onBeforeUnmount(() => {
           "
           @update:plain-view="setWebPrefs({ plainView: $event })"
           @update:hide-media="setWebPrefs({ hideMedia: $event })"
+          @range-commit="visualActionScheduler.commit()"
         />
       </template>
     </BasePopover>

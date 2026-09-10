@@ -116,6 +116,7 @@
   --motion-ui: 200ms ease-in-out;
   --motion-panel: 180ms cubic-bezier(0.25, 1, 0.5, 1);
   --motion-content: 160ms;
+  --motion-live-opacity: 60ms;
   --motion-resize: 220ms ease;
   --motion-nav: 240ms;
   --motion-micro: 120ms;
@@ -221,6 +222,7 @@
     --motion-ui: 0ms;
     --motion-panel: 0ms;
     --motion-content: 0ms;
+    --motion-live-opacity: 0ms;
     --motion-resize: 0ms;
     --motion-nav: 0ms;
     --motion-micro: 0ms;

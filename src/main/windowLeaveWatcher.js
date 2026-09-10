@@ -1,8 +1,15 @@
 import { screen } from 'electron'
 import { getMainWindow } from './windowManager.js'
+import {
+  STEALTH_LEAVE_MODE,
+  STEALTH_REENTRY_MODE,
+  normalizeStealthWatcherMode,
+  resolveStealthRevealEdge
+} from '../shared/stealthRevealRegion.js'
 
 export const WATCHER_SAMPLE_INTERVAL_MS = 50
 export const WINDOW_LEFT_CHANNEL = 'stealth:auto-hide-window-left'
+export const WINDOW_REENTER_CHANNEL = 'stealth:auto-hide-window-reenter'
 
 let timer = null
 let active = false
@@ -12,6 +19,8 @@ let outsideEpoch = 0
 let outsideActive = false
 let sentOutsideEpoch = null
 let reviewableOutsideEpochs = new Set()
+let watcherMode = STEALTH_LEAVE_MODE
+let activeRevealEdge = null
 
 function getWindow() {
   const win = getMainWindow?.()
@@ -28,13 +37,17 @@ function getCurrentOutside() {
     point.y < bounds.y ||
     point.x >= bounds.x + bounds.width ||
     point.y >= bounds.y + bounds.height
-  return { ok: true, win, outside }
+  return { ok: true, win, point, bounds, outside }
 }
 
 function resetOutsideState() {
   outsideActive = false
   sentOutsideEpoch = null
   reviewableOutsideEpochs.clear()
+}
+
+function resetRevealState() {
+  activeRevealEdge = null
 }
 
 function issueOutsideCandidate({ markWatcherActive = false } = {}) {
@@ -75,6 +88,16 @@ function sampleWindowLeave() {
     disableWindowLeaveWatcher()
     return
   }
+  if (watcherMode === STEALTH_REENTRY_MODE) {
+    const edge = resolveStealthRevealEdge(current.point, current.bounds)
+    if (edge && edge !== activeRevealEdge) {
+      activeRevealEdge = edge
+      current.win.webContents?.send?.(WINDOW_REENTER_CHANNEL, { watcherEpoch, edge })
+    } else if (!edge) {
+      resetRevealState()
+    }
+    return
+  }
   if (!current.outside) {
     resetOutsideState()
     return
@@ -84,16 +107,18 @@ function sampleWindowLeave() {
   }
 }
 
-export function enableWindowLeaveWatcher() {
+export function enableWindowLeaveWatcher(payload = {}) {
   const win = getWindow()
   if (!win) return { ok: false, reason: 'window-not-ready' }
   disableWindowLeaveWatcher()
   watcherEpoch += 1
+  watcherMode = normalizeStealthWatcherMode(payload?.mode)
   active = true
   sampling = true
   resetOutsideState()
+  resetRevealState()
   timer = setInterval(sampleWindowLeave, WATCHER_SAMPLE_INTERVAL_MS)
-  return { ok: true, watcherEpoch }
+  return { ok: true, watcherEpoch, mode: watcherMode }
 }
 
 export function disableWindowLeaveWatcher(payload = {}) {
@@ -106,11 +131,15 @@ export function disableWindowLeaveWatcher(payload = {}) {
   }
   active = false
   resetOutsideState()
+  resetRevealState()
   return { ok: true, watcherEpoch }
 }
 
 export function reviewWindowLeaveCandidate(payload = {}) {
   if (!active) return { ok: false, reason: 'watcher-inactive', watcherEpoch }
+  if (watcherMode !== STEALTH_LEAVE_MODE) {
+    return { ok: false, reason: 'watcher-mode-mismatch', watcherEpoch }
+  }
   if (payload.watcherEpoch !== watcherEpoch) {
     return { ok: false, reason: 'stale-watcher-epoch', watcherEpoch }
   }
@@ -131,6 +160,9 @@ export function reviewWindowLeaveCandidate(payload = {}) {
 
 export function createWindowLeaveCandidate(payload = {}) {
   if (!active) return { ok: false, reason: 'watcher-inactive', watcherEpoch }
+  if (watcherMode !== STEALTH_LEAVE_MODE) {
+    return { ok: false, reason: 'watcher-mode-mismatch', watcherEpoch }
+  }
   if (payload.watcherEpoch !== watcherEpoch) {
     return { ok: false, reason: 'stale-watcher-epoch', watcherEpoch }
   }
@@ -145,6 +177,9 @@ export function createWindowLeaveCandidate(payload = {}) {
 
 export function reviewWindowLeaveFocusLoss(payload = {}) {
   if (!active) return { ok: false, reason: 'watcher-inactive', watcherEpoch }
+  if (watcherMode !== STEALTH_LEAVE_MODE) {
+    return { ok: false, reason: 'watcher-mode-mismatch', watcherEpoch }
+  }
   if (payload.watcherEpoch !== watcherEpoch) {
     return { ok: false, reason: 'stale-watcher-epoch', watcherEpoch }
   }
@@ -162,7 +197,9 @@ export function getWindowLeaveWatcherState() {
     outsideEpoch,
     outsideActive,
     sentOutsideEpoch,
-    reviewableOutsideEpochs: [...reviewableOutsideEpochs]
+    reviewableOutsideEpochs: [...reviewableOutsideEpochs],
+    watcherMode,
+    activeRevealEdge
   }
 }
 
@@ -171,7 +208,9 @@ export function configureWindowLeaveWatcherForTest() {
   timer = null
   active = false
   sampling = false
+  watcherMode = STEALTH_LEAVE_MODE
   watcherEpoch = 0
   outsideEpoch = 0
   resetOutsideState()
+  resetRevealState()
 }

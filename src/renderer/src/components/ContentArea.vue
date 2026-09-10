@@ -39,7 +39,6 @@ const pdfColors = computed(() => normalizePdfColorPrefs(pdfPrefs.value))
 const isNormalFileForm = computed(() => state.content === 'file' && state.form === 'normal')
 const supportsFileVisual = computed(() => isTxt.value || isEpub.value)
 const rendererBodyOpacity = computed(() => {
-  if (state.content !== 'file') return props.opacity
   return `calc(${props.opacity} * var(--stealth-file-body-opacity-multiplier, 1))`
 })
 const fileVisualStyle = computed(() => {
