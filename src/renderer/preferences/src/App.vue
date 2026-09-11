@@ -1,9 +1,8 @@
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import PreferencesSession from './PreferencesSession.vue'
 import { scheduleAfterNextPaint } from '../../src/scheduleAfterNextPaint.js'
 
-const sessionEpoch = ref(0)
 const sessionRef = ref(null)
 let lastCompletedGeneration = 0
 let pendingGeneration = null
@@ -22,7 +21,7 @@ function acknowledge(generation) {
   }
 }
 
-async function deactivate(generation) {
+function deactivate(generation) {
   if (disposed) return
   if (!Number.isSafeInteger(generation) || generation <= 0) return
   if (generation < lastCompletedGeneration) return
@@ -36,16 +35,13 @@ async function deactivate(generation) {
   cancelPreparedReveal?.()
   cancelPreparedReveal = null
   pendingRevealGeneration = null
-  sessionEpoch.value += 1
-  await nextTick()
+  const activeElement = document.activeElement
+  // The preference session stays mounted while its native window is hidden.
+  // Remounting the whole tree here races Teleport/listbox cleanup and leaves
+  // Vue trying to remove already-detached nodes on the next open.
+  if (activeElement && activeElement !== document.body) activeElement.blur?.()
 
   if (disposed || pendingGeneration !== generation) return
-
-  const sessionRoot = sessionRef.value?.$el
-  const activeElement = document.activeElement
-  if (activeElement && activeElement !== document.body && !sessionRoot?.contains(activeElement)) {
-    activeElement.blur?.()
-  }
 
   lastCompletedGeneration = generation
   pendingGeneration = null
@@ -85,5 +81,5 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <PreferencesSession :key="sessionEpoch" ref="sessionRef" />
+  <PreferencesSession ref="sessionRef" />
 </template>

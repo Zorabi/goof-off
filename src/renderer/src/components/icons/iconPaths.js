@@ -46,6 +46,7 @@ export const iconPaths = Object.freeze({
     { d: 'M4 6h16v12H4z' },
     { d: 'M8 10h8v4H8z', attrs: { 'stroke-dasharray': '2 2' } }
   ],
+  'follow-pointer': [{ d: 'M4 4h16v16H4z' }, { d: 'm8 7 7 6-3 .5 2 3.5-2 1-2-3.5-2 2Z' }],
   toc: [
     { d: 'M8 7h12' },
     { d: 'M8 12h12' },

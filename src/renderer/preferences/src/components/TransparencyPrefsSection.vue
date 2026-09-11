@@ -24,11 +24,9 @@ const MAX_INTERFACE_OPACITY = 0.95
 const diagnosticTimers = new Map()
 const contentLevelDraft = ref(DEFAULT_TRANSPARENCY_PREFS.contentLevel)
 const contentLevelAdjusting = ref(false)
-const stealthReadingEnabled = computed(
-  () =>
-    prefs.value.merged === true &&
-    prefs.value.windowEnabled === true &&
-    prefs.value.contentEnabled === true
+const backgroundHiddenEnabled = computed(() => prefs.value.windowEnabled === true)
+const interfaceFadeEnabled = computed(
+  () => backgroundHiddenEnabled.value && prefs.value.contentEnabled === true
 )
 
 function applyPrefs(value) {
@@ -113,12 +111,24 @@ async function setPatch(patch, { debounceDiagnostic = false, optimistic = false 
   }
 }
 
-function setStealthReading(enabled) {
-  return setPatch({
-    merged: enabled,
-    windowEnabled: enabled,
-    contentEnabled: enabled
-  })
+function setBackgroundHidden(enabled) {
+  return setPatch(
+    {
+      merged: false,
+      windowEnabled: enabled
+    },
+    { optimistic: true }
+  )
+}
+
+function setInterfaceFade(enabled) {
+  return setPatch(
+    {
+      merged: false,
+      contentEnabled: enabled
+    },
+    { optimistic: true }
+  )
 }
 
 async function flushContentLevelWrite() {
@@ -226,12 +236,23 @@ onUnmounted(() => {
     <div v-if="status" class="prefs-line__hint is-danger">{{ status }}</div>
 
     <label class="prefs-line">
-      <span class="prefs-line__label">隐身阅读</span>
+      <span class="prefs-line__label">背景隐去</span>
       <input
         type="checkbox"
-        :checked="stealthReadingEnabled"
+        :checked="backgroundHiddenEnabled"
         :disabled="readiness !== 'ready'"
-        @change="setStealthReading($event.target.checked)"
+        @change="setBackgroundHidden($event.target.checked)"
+      />
+    </label>
+
+    <label class="prefs-line">
+      <span class="prefs-line__label">界面淡化</span>
+      <input
+        type="checkbox"
+        :checked="prefs.contentEnabled"
+        :disabled="readiness !== 'ready' || !backgroundHiddenEnabled"
+        :title="backgroundHiddenEnabled ? '' : '开启背景隐去后可用'"
+        @change="setInterfaceFade($event.target.checked)"
       />
     </label>
 
@@ -246,8 +267,8 @@ onUnmounted(() => {
           step="0.01"
           :value="contentLevelDraft"
           :style="{ '--fill-pct': contentLevelFillPercent }"
-          :disabled="readiness !== 'ready' || !stealthReadingEnabled"
-          :title="stealthReadingEnabled ? '' : '开启隐身阅读后可调'"
+          :disabled="readiness !== 'ready' || !interfaceFadeEnabled"
+          :title="interfaceFadeEnabled ? '' : '开启背景隐去和界面淡化后可调'"
           aria-label="界面淡化强度"
           @input="queueContentLevel($event.target.value)"
           @change="commitContentLevel($event.target.value)"

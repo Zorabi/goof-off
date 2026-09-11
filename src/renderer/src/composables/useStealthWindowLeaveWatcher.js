@@ -1,9 +1,14 @@
 import { computed, ref, unref, watch } from 'vue'
+import {
+  STEALTH_REVEAL_REGION_EDGES,
+  normalizeStealthRevealRegion
+} from '../../../shared/stealthRevealRegion.js'
 
 export function useStealthWindowLeaveWatcher({
   api = globalThis.window?.api,
   armed,
   revealArmed = ref(false),
+  revealRegion = ref(STEALTH_REVEAL_REGION_EDGES),
   readingTargetKey,
   canHideIgnoringFocus,
   requestBodyHideForWindowLeave,
@@ -11,6 +16,7 @@ export function useStealthWindowLeaveWatcher({
 }) {
   const currentWatcherEpoch = ref(null)
   const currentWatcherMode = ref(null)
+  const currentWatcherRevealRegion = ref(null)
   let enabling = null
   let enableGeneration = 0
   let disposed = false
@@ -25,6 +31,7 @@ export function useStealthWindowLeaveWatcher({
     if (isArmed.value) return 'leave'
     return null
   })
+  const normalizedRevealRegion = computed(() => normalizeStealthRevealRegion(unref(revealRegion)))
 
   async function invokeWatcherIpc(operation, failureReason) {
     try {
@@ -36,10 +43,15 @@ export function useStealthWindowLeaveWatcher({
 
   async function enable() {
     const requestedMode = trackingMode.value
+    const requestedRevealRegion = normalizedRevealRegion.value
     if (disposed || !requestedMode || currentWatcherEpoch.value != null || enabling) return
     const generation = ++enableGeneration
     const pendingEnable = invokeWatcherIpc(
-      () => api?.windowEnableStealthLeaveWatcher?.({ mode: requestedMode }),
+      () =>
+        api?.windowEnableStealthLeaveWatcher?.({
+          mode: requestedMode,
+          revealRegion: requestedRevealRegion
+        }),
       'enable-ipc-failed'
     )
     enabling = pendingEnable
@@ -60,6 +72,7 @@ export function useStealthWindowLeaveWatcher({
       ) {
         currentWatcherEpoch.value = result.watcherEpoch
         currentWatcherMode.value = requestedMode
+        currentWatcherRevealRegion.value = requestedRevealRegion
         if (canAdoptForActiveArming) {
           disableAfterPendingReview = false
           samplingStoppedForPendingReview = false
@@ -92,6 +105,7 @@ export function useStealthWindowLeaveWatcher({
     const epoch = currentWatcherEpoch.value
     currentWatcherEpoch.value = null
     currentWatcherMode.value = null
+    currentWatcherRevealRegion.value = null
     disableAfterPendingReview = false
     samplingStoppedForPendingReview = false
     if (epoch != null) {
@@ -305,17 +319,24 @@ export function useStealthWindowLeaveWatcher({
     }
   )
 
+  const stopRevealRegion = watch(normalizedRevealRegion, (value, previous) => {
+    if (value === previous || trackingMode.value !== 'reentry') return
+    void rebuildWatcher()
+  })
+
   function dispose() {
     disposed = true
     enableGeneration += 1
     stop()
     stopReadingTarget()
+    stopRevealRegion()
     void disable({ force: true })
   }
 
   return {
     currentWatcherEpoch,
     currentWatcherMode,
+    currentWatcherRevealRegion,
     enable,
     disable,
     dispose,

@@ -13,9 +13,9 @@ export const POPOVER_DESIRED_SIZE = Object.freeze({
   'address-suggestions': Object.freeze({ width: 220, height: 260 }),
   'more-menu': Object.freeze({
     width: MORE_MENU_READING_PANEL_CONTENT_WIDTH + MORE_MENU_READING_PANEL_HORIZONTAL_CHROME,
-    // Five 44px rows plus the separator and shell padding. The child window
+    // Six 44px rows plus the separator and shell padding. The child window
     // still measures and shrinks to the actual item count after rendering.
-    height: 248
+    height: 292
   })
 })
 
@@ -29,8 +29,15 @@ const ADDRESS_ACTION_KEYS = Object.freeze({
   'set-active-index': ['id', 'action', 'index', 'itemId', 'requestToken'],
   'commit-suggestion': ['id', 'action', 'index', 'itemId', 'requestToken']
 })
-const MENU_COMMANDS = ['pin', 'mini', 'toolbar-auto-hide', 'body-auto-hide', 'preferences']
-const MENU_CHECKBOX_COMMANDS = ['toolbar-auto-hide', 'body-auto-hide']
+const MENU_COMMANDS = [
+  'pin',
+  'mini',
+  'toolbar-auto-hide',
+  'body-auto-hide',
+  'body-follow-pointer',
+  'preferences'
+]
+const MENU_CHECKBOX_COMMANDS = ['toolbar-auto-hide', 'body-auto-hide', 'body-follow-pointer']
 const CLOSE_REASONS = ['closed', 'escape', 'focus-lost', 'replaced', 'open-failed', 'crashed']
 
 export function isFiniteNumber(value) {

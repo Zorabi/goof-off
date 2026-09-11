@@ -1,7 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { normalizeRangeProgress } from '../src/shared/rangeMath.js'
-import { resolveStealthRevealEdge } from '../src/shared/stealthRevealRegion.js'
+import {
+  STEALTH_REVEAL_REGION_WINDOW,
+  resolveStealthRevealEdge,
+  resolveStealthRevealTarget
+} from '../src/shared/stealthRevealRegion.js'
 import { createVisualActionScheduler } from '../src/renderer/src/popoverAdapters.js'
 import { ref } from 'vue'
 import { useStealthWindowLeaveWatcher } from '../src/renderer/src/composables/useStealthWindowLeaveWatcher.js'
@@ -22,6 +26,23 @@ test('hidden window reveal region covers full-width top and bottom 44px', () => 
   assert.equal(resolveStealthRevealEdge({ x: 300, y: 244 }, bounds), null)
   assert.equal(resolveStealthRevealEdge({ x: 300, y: 456 }, bounds), 'bottom')
   assert.equal(resolveStealthRevealEdge({ x: 500, y: 220 }, bounds), null)
+})
+
+test('pointer-follow mode reveals from anywhere inside the window', () => {
+  const bounds = { x: 100, y: 200, width: 400, height: 300 }
+
+  assert.equal(
+    resolveStealthRevealTarget({ x: 300, y: 350 }, bounds, STEALTH_REVEAL_REGION_WINDOW),
+    'window'
+  )
+  assert.equal(
+    resolveStealthRevealTarget({ x: 99, y: 350 }, bounds, STEALTH_REVEAL_REGION_WINDOW),
+    null
+  )
+  assert.equal(
+    resolveStealthRevealTarget({ x: 500, y: 350 }, bounds, STEALTH_REVEAL_REGION_WINDOW),
+    null
+  )
 })
 
 test('visual scheduler keeps the latest value for each independent slider', async () => {
@@ -81,5 +102,31 @@ test('leave watcher switches to reentry mode only while the body is hidden', asy
 
   assert.deepEqual(enabledModes, ['leave', 'reentry'])
   assert.deepEqual(reveals, ['window-reenter-top'])
+  watcher.dispose()
+})
+
+test('leave watcher forwards the pointer-follow reveal region', async () => {
+  const enabled = []
+  const watcher = useStealthWindowLeaveWatcher({
+    armed: ref(false),
+    revealArmed: ref(true),
+    revealRegion: ref(STEALTH_REVEAL_REGION_WINDOW),
+    readingTargetKey: ref('file:txt:normal'),
+    canHideIgnoringFocus: ref(false),
+    requestBodyHideForWindowLeave: async () => ({ ok: true }),
+    api: {
+      async windowEnableStealthLeaveWatcher(payload) {
+        enabled.push(payload)
+        return { ok: true, watcherEpoch: 1, ...payload }
+      },
+      async windowDisableStealthLeaveWatcher() {
+        return { ok: true }
+      }
+    }
+  })
+
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.deepEqual(enabled, [{ mode: 'reentry', revealRegion: 'window' }])
+  assert.equal(watcher.currentWatcherRevealRegion.value, 'window')
   watcher.dispose()
 })

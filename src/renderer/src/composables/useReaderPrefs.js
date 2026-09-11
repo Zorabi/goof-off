@@ -40,6 +40,14 @@ const pdfPrefs = ref({ ...DEFAULT_PDF_RUNTIME_PREFS })
 
 let bootstrapPromise = null
 let listenersRegistered = false
+let txtChangeRevision = 0
+let txtWriteGeneration = 0
+let pendingTxtPatch = null
+let failedTxtPatch = null
+let authoritativeTxtPrefs = {
+  ...DEFAULT_TXT_RUNTIME_PREFS,
+  pageKeys: { ...DEFAULT_TXT_RUNTIME_PREFS.pageKeys }
+}
 let epubChangeRevision = 0
 let epubWriteGeneration = 0
 let pendingEpubPatch = null
@@ -54,12 +62,62 @@ let pendingPdfPatch = null
 let failedPdfPatch = null
 let authoritativePdfPrefs = { ...DEFAULT_PDF_RUNTIME_PREFS }
 
+function assertPatchApplied(next, patch) {
+  if (!next || typeof next !== 'object' || next.ok === false) {
+    throw new Error(next?.message || '阅读偏好写入未生效')
+  }
+  for (const [key, value] of Object.entries(patch || {})) {
+    if (key === 'pageKeys') {
+      for (const [direction, keyValue] of Object.entries(value || {})) {
+        if (!Object.is(next.pageKeys?.[direction], keyValue)) {
+          throw new Error('阅读偏好写入未生效')
+        }
+      }
+    } else if (!Object.is(next[key], value)) {
+      throw new Error('阅读偏好写入未生效')
+    }
+  }
+}
+
 function mergeTxtPrefs(value) {
-  txtPrefs.value = {
+  authoritativeTxtPrefs = {
     ...DEFAULT_TXT_RUNTIME_PREFS,
     ...(value || {}),
     pageKeys: { ...DEFAULT_TXT_RUNTIME_PREFS.pageKeys, ...(value?.pageKeys || {}) }
   }
+  composeTxtPrefs()
+}
+
+function composeTxtPrefs() {
+  const combined = {
+    ...authoritativeTxtPrefs,
+    ...(failedTxtPatch || {}),
+    ...(pendingTxtPatch || {})
+  }
+  txtPrefs.value = {
+    ...DEFAULT_TXT_RUNTIME_PREFS,
+    ...combined,
+    pageKeys: { ...DEFAULT_TXT_RUNTIME_PREFS.pageKeys, ...(combined.pageKeys || {}) }
+  }
+}
+
+function reconcileFailedTxtPatch(value) {
+  if (!failedTxtPatch || !value || typeof value !== 'object' || Array.isArray(value)) return
+
+  for (const [key, failedValue] of Object.entries(failedTxtPatch)) {
+    if (!Object.prototype.hasOwnProperty.call(value, key)) continue
+    const fieldChanged = !Object.is(value[key], authoritativeTxtPrefs[key])
+    const fieldConfirmed = Object.is(value[key], failedValue)
+    if (fieldChanged || fieldConfirmed) delete failedTxtPatch[key]
+  }
+  if (Object.keys(failedTxtPatch).length === 0) failedTxtPatch = null
+}
+
+function applyTxtPrefsChange(value, options = {}) {
+  txtChangeRevision += 1
+  if (options?.replaceRuntime === true) failedTxtPatch = null
+  else reconcileFailedTxtPatch(value)
+  mergeTxtPrefs(value)
 }
 
 function composeEpubPrefs() {
@@ -140,15 +198,9 @@ function applyPdfPrefsChange(value, options = {}) {
 function registerListeners() {
   if (listenersRegistered) return
   listenersRegistered = true
-  window.api?.onTxtPrefsChange?.(mergeTxtPrefs)
+  window.api?.onTxtPrefsChange?.(applyTxtPrefsChange)
   window.api?.onEpubPrefsChange?.(applyEpubPrefsChange)
   window.api?.onPdfPrefsChange?.(applyPdfPrefsChange)
-}
-
-function readPrefs(read, merge) {
-  return Promise.resolve(read?.())
-    .then(merge)
-    .catch(() => {})
 }
 
 function readPdfPrefs() {
@@ -156,6 +208,15 @@ function readPdfPrefs() {
   return Promise.resolve(window.api?.pdfGetPrefs?.())
     .then((value) => {
       if (pdfChangeRevision === startedAtRevision) mergePdfPrefs(value)
+    })
+    .catch(() => {})
+}
+
+function readTxtPrefs() {
+  const startedAtRevision = txtChangeRevision
+  return Promise.resolve(window.api?.txtGetPrefs?.())
+    .then((value) => {
+      if (txtChangeRevision === startedAtRevision) mergeTxtPrefs(value)
     })
     .catch(() => {})
 }
@@ -182,6 +243,7 @@ async function setEpubPrefs(patch) {
   try {
     if (typeof window.api?.epubSetPrefs !== 'function') throw new Error('EPUB 偏好接口不可用')
     const next = await window.api.epubSetPrefs(patch)
+    assertPatchApplied(next, patch)
     if (generation === epubWriteGeneration) {
       pendingEpubPatch = null
       if (epubChangeRevision === startedAtRevision) applyEpubPrefsChange(next)
@@ -200,6 +262,38 @@ async function setEpubPrefs(patch) {
   }
 }
 
+async function setTxtPrefs(patch) {
+  const generation = ++txtWriteGeneration
+  const startedAtRevision = txtChangeRevision
+  if (failedTxtPatch && patch && typeof patch === 'object' && !Array.isArray(patch)) {
+    for (const key of Object.keys(patch)) delete failedTxtPatch[key]
+    if (Object.keys(failedTxtPatch).length === 0) failedTxtPatch = null
+  }
+  pendingTxtPatch = { ...(pendingTxtPatch || {}), ...(patch || {}) }
+  composeTxtPrefs()
+
+  try {
+    if (typeof window.api?.txtSetPrefs !== 'function') throw new Error('TXT 偏好接口不可用')
+    const next = await window.api.txtSetPrefs(patch)
+    assertPatchApplied(next, patch)
+    if (generation === txtWriteGeneration) {
+      pendingTxtPatch = null
+      if (txtChangeRevision === startedAtRevision) applyTxtPrefsChange(next)
+      else composeTxtPrefs()
+    }
+    return next
+  } catch (error) {
+    if (generation === txtWriteGeneration) {
+      pendingTxtPatch = null
+      if (patch && typeof patch === 'object' && !Array.isArray(patch)) {
+        failedTxtPatch = { ...(failedTxtPatch || {}), ...patch }
+      }
+      composeTxtPrefs()
+    }
+    throw error
+  }
+}
+
 async function setPdfPrefs(patch) {
   const generation = ++pdfWriteGeneration
   const startedAtRevision = pdfChangeRevision
@@ -213,6 +307,7 @@ async function setPdfPrefs(patch) {
   try {
     if (typeof window.api?.pdfSetPrefs !== 'function') throw new Error('PDF 偏好接口不可用')
     const next = await window.api.pdfSetPrefs(patch)
+    assertPatchApplied(next, patch)
     if (generation === pdfWriteGeneration) {
       pendingPdfPatch = null
       if (pdfChangeRevision === startedAtRevision) applyPdfPrefsChange(next)
@@ -234,15 +329,11 @@ async function setPdfPrefs(patch) {
 export function bootstrapReaderPrefs() {
   registerListeners()
   if (bootstrapPromise) return bootstrapPromise
-  bootstrapPromise = Promise.all([
-    readPrefs(window.api?.txtGetPrefs, mergeTxtPrefs),
-    readEpubPrefs(),
-    readPdfPrefs()
-  ])
+  bootstrapPromise = Promise.all([readTxtPrefs(), readEpubPrefs(), readPdfPrefs()])
   return bootstrapPromise
 }
 
 export function useReaderPrefs() {
   bootstrapReaderPrefs()
-  return { txtPrefs, epubPrefs, pdfPrefs, setEpubPrefs, setPdfPrefs }
+  return { txtPrefs, epubPrefs, pdfPrefs, setTxtPrefs, setEpubPrefs, setPdfPrefs }
 }

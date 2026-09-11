@@ -37,6 +37,21 @@ test('home screen participates in toolbar and body auto-hide', async () => {
   assert.equal(service.bodyHidden.value, true)
 })
 
+test('pointer-follow body reveal is opt-in and requires body auto-hide', () => {
+  const { service } = createHarness()
+
+  assert.equal(service.bodyFollowPointerEnabled.value, false)
+  assert.deepEqual(service.setBodyFollowPointerEnabled(true), {
+    ok: false,
+    reason: 'body-auto-hide-disabled'
+  })
+  service.setBodyAutoHideEnabled(true)
+  assert.deepEqual(service.setBodyFollowPointerEnabled(true), { ok: true })
+  assert.equal(service.bodyFollowPointerEnabled.value, true)
+  service.setBodyAutoHideEnabled(false)
+  assert.equal(service.bodyFollowPointerEnabled.value, false)
+})
+
 test('click-through failure restores the body instead of leaving an input shield', async () => {
   const { service } = createHarness({
     api: {
@@ -80,4 +95,44 @@ test('failed input restoration keeps a marker so later activity retries', async 
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.equal(restoreAttempts, 2)
   assert.equal(service.mousePassthroughActive.value, false)
+})
+
+test('re-enable waits for an in-flight restore before hiding again', async () => {
+  let releaseRestore
+  let restoreStarted = false
+  const restoreGate = new Promise((resolve) => {
+    releaseRestore = resolve
+  })
+  const { service, passthroughCalls } = createHarness({
+    api: {
+      async windowSetMousePassthrough({ enabled }) {
+        if (!enabled && !restoreStarted) {
+          restoreStarted = true
+          await restoreGate
+        }
+        passthroughCalls.push(enabled)
+        return { ok: true, enabled }
+      }
+    }
+  })
+
+  service.setBodyAutoHideEnabled(true)
+  await service.requestBodyHideForWindowLeave()
+  service.setBodyAutoHideEnabled(false)
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(restoreStarted, true)
+
+  service.setBodyAutoHideEnabled(true)
+  let hideSettled = false
+  const hidePromise = service.requestBodyHideForWindowLeave().then((result) => {
+    hideSettled = true
+    return result
+  })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(hideSettled, false)
+
+  releaseRestore()
+  assert.equal((await hidePromise).ok, true)
+  assert.equal(service.bodyHidden.value, true)
+  assert.deepEqual(passthroughCalls, [true, false, true])
 })

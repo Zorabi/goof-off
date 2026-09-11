@@ -124,7 +124,11 @@ function menuCommand(command) {
 }
 
 function isMenuCheckboxItem(item) {
-  return item.id === 'toolbar-auto-hide' || item.id === 'body-auto-hide'
+  return (
+    item.id === 'toolbar-auto-hide' ||
+    item.id === 'body-auto-hide' ||
+    item.id === 'body-follow-pointer'
+  )
 }
 
 function commitVisual() {
@@ -162,16 +166,12 @@ onBeforeUnmount(() => {
     <VisualControlPanel
       v-if="snapshot.id === 'visual'"
       embedded
-      :merged="snapshot.merged"
       :window-enabled="snapshot.windowEnabled"
       :content-enabled="snapshot.contentEnabled"
       :content-toggle-disabled="snapshot.contentToggleDisabled"
-      :content-toggle-disabled-reason="snapshot.contentToggleDisabledReason"
       :content-level="snapshot.contentLevel"
       :zoom="snapshot.zoom"
       :wheel-speed="snapshot.wheelSpeed"
-      :plain-view="snapshot.plainView"
-      :hide-media="snapshot.hideMedia"
       :web-controls-visible="snapshot.webControlsVisible !== false"
       @toggle-transparency="
         send({
@@ -184,8 +184,6 @@ onBeforeUnmount(() => {
       @update:content-level="send({ id: 'visual', action: 'set-content-level', value: $event })"
       @update:zoom="send({ id: 'visual', action: 'set-zoom', value: $event })"
       @update:wheel-speed="send({ id: 'visual', action: 'set-wheel-speed', value: $event })"
-      @update:plain-view="send({ id: 'visual', action: 'set-plain-view', value: $event })"
-      @update:hide-media="send({ id: 'visual', action: 'set-hide-media', value: $event })"
       @range-commit="commitVisual"
       @pointerup.capture="commitVisual"
       @change.capture="commitVisual"
@@ -400,12 +398,11 @@ onBeforeUnmount(() => {
   outline-offset: -2px;
 }
 .more-menu-child__item.is-active {
-  background: color-mix(
-    in srgb,
-    var(--effective-popover-hover-bg, var(--color-hover-bg)) 72%,
-    transparent
-  );
+  background: transparent;
   color: var(--color-active-icon);
+}
+.more-menu-child__item.is-active:hover:not(:disabled) {
+  background: var(--effective-popover-hover-bg, var(--color-hover-bg));
 }
 .more-menu-child__item.is-active::before {
   content: '';

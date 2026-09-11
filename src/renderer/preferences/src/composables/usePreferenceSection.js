@@ -9,6 +9,7 @@ export function usePreferenceSection({ defaults, get, set, listen }) {
   let unlisten = null
   let disposed = true
   let changeRevision = 0
+  let writeGeneration = 0
   let subscriptionFailed = false
   const isDisposed = () => disposed
 
@@ -23,6 +24,31 @@ export function usePreferenceSection({ defaults, get, set, listen }) {
     if (disposed) return prefs.value
     changeRevision += 1
     return apply(next)
+  }
+
+  function mergePatch(current, patch) {
+    const next = { ...(current || {}), ...(patch || {}) }
+    if (patch?.pageKeys && typeof patch.pageKeys === 'object' && !Array.isArray(patch.pageKeys)) {
+      next.pageKeys = { ...(current?.pageKeys || {}), ...patch.pageKeys }
+    }
+    return next
+  }
+
+  function assertPatchApplied(next, patch) {
+    if (!next || typeof next !== 'object' || next.ok === false) {
+      throw new Error(next?.message || '偏好写入未生效')
+    }
+    for (const [key, value] of Object.entries(patch || {})) {
+      if (key === 'pageKeys') {
+        for (const [direction, keyValue] of Object.entries(value || {})) {
+          if (!Object.is(next.pageKeys?.[direction], keyValue)) {
+            throw new Error('偏好写入未生效')
+          }
+        }
+      } else if (!Object.is(next[key], value)) {
+        throw new Error('偏好写入未生效')
+      }
+    }
   }
 
   async function load(startedAtRevision = changeRevision) {
@@ -47,14 +73,21 @@ export function usePreferenceSection({ defaults, get, set, listen }) {
 
   async function savePatch(patch) {
     if (!writable.value || disposed) return prefs.value
+    const generation = ++writeGeneration
+    const previous = prefs.value
+    apply(mergePatch(previous, patch))
     try {
       const next = await set(patch)
-      if (disposed) return prefs.value
+      if (disposed || generation !== writeGeneration) return prefs.value
+      assertPatchApplied(next, patch)
       apply(next)
       status.value = { kind: '', text: '' }
       return next
     } catch (err) {
-      if (!disposed) status.value = { kind: 'error', text: err?.message || '保存失败' }
+      if (!disposed && generation === writeGeneration) {
+        apply(previous)
+        status.value = { kind: 'error', text: err?.message || '保存失败' }
+      }
       return prefs.value
     }
   }

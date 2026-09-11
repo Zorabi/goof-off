@@ -172,7 +172,8 @@ const api = {
     ipcRenderer.invoke('window:set-mouse-passthrough', payload),
   windowEnableStealthLeaveWatcher: (payload = {}) =>
     ipcRenderer.invoke('window:stealth-leave-watcher-enable', {
-      mode: payload?.mode === 'reentry' ? 'reentry' : 'leave'
+      mode: payload?.mode === 'reentry' ? 'reentry' : 'leave',
+      revealRegion: payload?.revealRegion === 'window' ? 'window' : 'edges'
     }),
   windowDisableStealthLeaveWatcher: (payload = {}) => {
     const disablePayload = { watcherEpoch: Number(payload?.watcherEpoch) }

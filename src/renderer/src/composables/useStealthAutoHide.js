@@ -47,6 +47,7 @@ export function useStealthAutoHide({
 } = {}) {
   const toolbarAutoHideEnabled = ref(false)
   const bodyAutoHideEnabled = ref(false)
+  const bodyFollowPointerEnabled = ref(false)
   const bodyHidden = ref(false)
   const mousePassthroughActive = ref(false)
   const bodyClickThroughRuntimeDisabled = ref(false)
@@ -58,6 +59,7 @@ export function useStealthAutoHide({
   let bodyOpacityMultiplierOwner = null
   let bodyHiddenOwner = null
   let passthroughOwner = null
+  let restorationPending = null
 
   const capability = computed(() => readCapability(api))
   const transparencyEnabled = computed(() => transparencyPrefs?.value?.windowEnabled === true)
@@ -255,6 +257,7 @@ export function useStealthAutoHide({
     clearResourceOwnership()
     toolbarAutoHideEnabled.value = true
     bodyAutoHideEnabled.value = false
+    bodyFollowPointerEnabled.value = false
     bodyHidden.value = false
     bodyOpacityMultiplier.value = 1
     await restoreStealthInteraction('body-hide-degraded', { modeBefore: from })
@@ -308,6 +311,12 @@ export function useStealthAutoHide({
   }
 
   function requestBodyHideForWindowLeave(reason = 'window-left', options = {}) {
+    // A disable/re-enable cycle can leave a native restore in flight. Wait for
+    // it before hiding again so the old restore cannot overwrite the new hide.
+    if (restorationPending) {
+      const pending = restorationPending
+      return pending.catch(() => {}).then(() => requestBodyHideForWindowLeave(reason, options))
+    }
     const allowUnfocused = options.allowUnfocused === true
     if (!canWindowLeaveHideBodyNow({ allowUnfocused, requireVisibleBody: true })) {
       return Promise.resolve({ ok: false, reason: 'conditions-not-met' })
@@ -328,7 +337,7 @@ export function useStealthAutoHide({
     return attempt.promise
   }
 
-  async function restoreStealthInteraction(reason = 'runtime-recovery', options = {}) {
+  async function performRestoreStealthInteraction(reason = 'runtime-recovery', options = {}) {
     const modeBefore = options.modeBefore || bodyMode.value
     const normalizedReason = normalizeReason(reason)
     const failures = []
@@ -381,10 +390,26 @@ export function useStealthAutoHide({
       : { ok: true, reason: normalizedReason }
   }
 
+  function restoreStealthInteraction(reason = 'runtime-recovery', options = {}) {
+    const previous = restorationPending
+    const queued = (previous ? previous.catch(() => {}) : Promise.resolve()).then(() =>
+      performRestoreStealthInteraction(reason, options)
+    )
+    const tracked = queued.finally(() => {
+      if (restorationPending === tracked) restorationPending = null
+    })
+    // Most callers intentionally fire-and-forget. Mark the rejection handled
+    // while still returning the original promise to callers that await it.
+    tracked.catch(() => {})
+    restorationPending = tracked
+    return tracked
+  }
+
   function resetRuntime(reason = 'state-change') {
     const modeBefore = bodyMode.value
     toolbarAutoHideEnabled.value = false
     bodyAutoHideEnabled.value = false
+    bodyFollowPointerEnabled.value = false
     bodyClickThroughRuntimeDisabled.value = false
     statusShown.clear()
     invalidateHideAttempts()
@@ -430,6 +455,7 @@ export function useStealthAutoHide({
     if (!next) {
       const modeBefore = bodyMode.value
       bodyAutoHideEnabled.value = false
+      bodyFollowPointerEnabled.value = false
       void restoreStealthInteraction('body-disabled', { modeBefore })
       logToggle('body', false)
       return { ok: true }
@@ -440,10 +466,24 @@ export function useStealthAutoHide({
       logToggle('body', false)
       return { ok: false, reason: 'body-fade-unavailable' }
     }
+    // A previous passthrough failure must not permanently disable click-through
+    // after the user explicitly turns body auto-hide back on.
+    bodyClickThroughRuntimeDisabled.value = false
     bodyAutoHideEnabled.value = true
     toolbarAutoHideEnabled.value = true
     invalidateHideAttempts()
     logToggle('body', true)
+    return { ok: true }
+  }
+
+  function setBodyFollowPointerEnabled(value) {
+    const next = value === true
+    if (next && !bodyAutoHideEnabled.value) {
+      return { ok: false, reason: 'body-auto-hide-disabled' }
+    }
+    bodyFollowPointerEnabled.value = next
+    invalidateHideAttempts()
+    logToggle('body-follow-pointer', next)
     return { ok: true }
   }
 
@@ -502,6 +542,7 @@ export function useStealthAutoHide({
   return {
     toolbarAutoHideEnabled,
     bodyAutoHideEnabled,
+    bodyFollowPointerEnabled,
     bodyAutoHideAvailable,
     bodyAutoHideDisabledTitle,
     toolbarAutoHideLocked,
@@ -514,6 +555,7 @@ export function useStealthAutoHide({
     canWindowLeaveHideBodyIgnoringFocus,
     setToolbarAutoHideEnabled,
     setBodyAutoHideEnabled,
+    setBodyFollowPointerEnabled,
     notifyActivity,
     restoreStealthInteraction,
     resetRuntime,

@@ -16,6 +16,7 @@ const props = defineProps({
   miniDisabledTitle: { type: String, default: '' },
   toolbarAutoHideEnabled: { type: Boolean, default: false },
   bodyAutoHideEnabled: { type: Boolean, default: false },
+  bodyFollowPointerEnabled: { type: Boolean, default: false },
   bodyAutoHideAvailable: { type: Boolean, default: false },
   bodyAutoHideDisabledTitle: { type: String, default: '' },
   toolbarAutoHideLocked: { type: Boolean, default: false },
@@ -29,7 +30,8 @@ const emit = defineEmits([
   'toggle-always-on-top',
   'toggle-mini',
   'toggle-toolbar-auto-hide',
-  'toggle-body-auto-hide'
+  'toggle-body-auto-hide',
+  'toggle-body-follow-pointer'
 ])
 
 const { state } = useAppState()
@@ -110,6 +112,16 @@ function menuItems() {
         enabled: !bodyAutoHideDisabled.value,
         checked: props.bodyAutoHideEnabled,
         title: bodyAutoHideDisabled.value ? props.bodyAutoHideDisabledTitle : ''
+      },
+      {
+        id: 'body-follow-pointer',
+        label: '主体跟随鼠标',
+        icon: 'follow-pointer',
+        enabled: bodyFollowPointerDisabled.value === false,
+        checked: props.bodyFollowPointerEnabled,
+        title: bodyFollowPointerDisabled.value
+          ? '开启主体自动隐藏后可用'
+          : '移入显示，移出隐藏（含状态栏）'
       }
     )
   }
@@ -258,6 +270,9 @@ const toolbarAutoHideDisabled = computed(() => !props.autoHideGateActive)
 const bodyAutoHideDisabled = computed(
   () => !props.autoHideGateActive || !props.bodyAutoHideAvailable
 )
+const bodyFollowPointerDisabled = computed(
+  () => bodyAutoHideDisabled.value || !props.bodyAutoHideEnabled
+)
 
 function toggleToolbarAutoHide() {
   if (toolbarAutoHideDisabled.value) return
@@ -271,6 +286,12 @@ function toggleBodyAutoHide() {
   close({ restoreFocus: false, blurTrigger: true })
 }
 
+function toggleBodyFollowPointer() {
+  if (bodyFollowPointerDisabled.value) return
+  emit('toggle-body-follow-pointer', !props.bodyFollowPointerEnabled)
+  close({ restoreFocus: false, blurTrigger: true })
+}
+
 function openPreferences() {
   close()
   window.api?.openPreferences?.()
@@ -281,6 +302,7 @@ function executeCommand(command) {
   if (command === 'mini') return toggleMini()
   if (command === 'toolbar-auto-hide') return toggleToolbarAutoHide()
   if (command === 'body-auto-hide') return toggleBodyAutoHide()
+  if (command === 'body-follow-pointer') return toggleBodyFollowPointer()
   if (command === 'preferences') return openPreferences()
   return undefined
 }
@@ -324,6 +346,7 @@ watch(
     props.autoHideControlsVisible,
     props.toolbarAutoHideEnabled,
     props.bodyAutoHideEnabled,
+    props.bodyFollowPointerEnabled,
     props.autoHideGateActive,
     props.bodyAutoHideAvailable,
     props.bodyAutoHideDisabledTitle,
@@ -432,8 +455,28 @@ onBeforeUnmount(() => {
             :title="bodyAutoHideDisabled ? props.bodyAutoHideDisabledTitle : ''"
             @click="toggleBodyAutoHide"
           >
-            <Icon name="autohide-body" />
+            <Icon name="follow-pointer" />
             <span>主体自动隐藏</span>
+          </button>
+          <button
+            data-test="more-body-follow-pointer"
+            type="button"
+            role="menuitemcheckbox"
+            :class="{
+              'is-active': props.bodyFollowPointerEnabled,
+              'is-disabled': bodyFollowPointerDisabled
+            }"
+            :aria-checked="String(props.bodyFollowPointerEnabled)"
+            :disabled="bodyFollowPointerDisabled"
+            :title="
+              bodyFollowPointerDisabled
+                ? '开启主体自动隐藏后可用'
+                : '移入显示，移出隐藏（含状态栏）'
+            "
+            @click="toggleBodyFollowPointer"
+          >
+            <Icon name="autohide-body" />
+            <span>主体跟随鼠标</span>
           </button>
         </template>
         <button data-test="more-preferences" type="button" role="menuitem" @click="openPreferences">
@@ -507,12 +550,12 @@ onBeforeUnmount(() => {
 }
 
 .more-menu-panel button.is-active {
-  background: color-mix(
-    in srgb,
-    var(--effective-popover-hover-bg, var(--color-hover-bg)) 72%,
-    transparent
-  );
+  background: transparent;
   color: var(--color-active-icon);
+}
+
+.more-menu-panel button.is-active:hover:not(:disabled) {
+  background: var(--effective-popover-hover-bg, var(--color-hover-bg));
 }
 
 .more-menu-panel button.is-active::before {

@@ -105,6 +105,9 @@ const stealthWindowReentryArmed = computed(
     stealthAutoHide.bodyHidden.value === true &&
     stealthAutoHide.bodyAutoHideEnabled.value === true
 )
+const stealthRevealRegion = computed(() =>
+  stealthAutoHide.bodyFollowPointerEnabled.value ? 'window' : 'edges'
+)
 const stealthWindowLeaveReadingTargetKey = computed(
   () =>
     `${appStateApi.state.content || 'none'}:${appStateApi.state.fileKind || 'none'}:${appStateApi.state.form || 'none'}`
@@ -113,6 +116,7 @@ const stealthWindowLeaveWatcher = useStealthWindowLeaveWatcher({
   api: window.api,
   armed: stealthWindowLeaveArmed,
   revealArmed: stealthWindowReentryArmed,
+  revealRegion: stealthRevealRegion,
   readingTargetKey: stealthWindowLeaveReadingTargetKey,
   canHideIgnoringFocus: stealthAutoHide.canWindowLeaveHideBodyIgnoringFocus,
   requestBodyHideForWindowLeave: stealthAutoHide.requestBodyHideForWindowLeave,
@@ -146,6 +150,11 @@ const chrome = useChromeVisibility({
   bottomLocked,
   toolbarAutoHideEnabled: effectiveToolbarAutoHideEnabled
 })
+const bottomBarVisible = computed(
+  () =>
+    chrome.bottomVisible.value &&
+    !(stealthAutoHide.bodyHidden.value && stealthAutoHide.bodyFollowPointerEnabled.value === true)
+)
 const usesChromeZones = computed(
   () =>
     chrome.stealthEnabled.value &&
@@ -163,11 +172,12 @@ function isClickThroughPassthroughActive() {
   )
 }
 
-// renderer 转发事件作为 main 全局光标采样的低延迟兜底；两者统一使用全宽
-// 顶部/底部 44px，不再把 6px 拖拽带排除成无法唤回的死区。
+// renderer 转发事件作为 main 全局光标采样的低延迟兜底。默认模式只在
+// 顶部/底部 44px 回显；跟随模式允许窗口内任意位置立即唤回主体。
 function shouldNotifyBodyMousemove(e) {
   const clickThroughPassthrough = isClickThroughPassthroughActive()
   if (!clickThroughPassthrough) return true
+  if (stealthAutoHide.bodyFollowPointerEnabled.value) return true
   return (
     (e.clientY >= 0 && e.clientY < CHROME_HOT_ZONE_HEIGHT) ||
     e.clientY >= windowSize.height - CHROME_HOT_ZONE_HEIGHT
@@ -725,6 +735,7 @@ defineExpose({ chromeLocks, stealthAutoHide, stealthWindowLeaveWatcher })
       :solid="chrome.topSolid.value"
       :toolbar-auto-hide-enabled="stealthAutoHide.toolbarAutoHideEnabled.value"
       :body-auto-hide-enabled="stealthAutoHide.bodyAutoHideEnabled.value"
+      :body-follow-pointer-enabled="stealthAutoHide.bodyFollowPointerEnabled.value"
       :body-auto-hide-available="stealthAutoHide.bodyAutoHideAvailable.value"
       :body-auto-hide-disabled-title="stealthAutoHide.bodyAutoHideDisabledTitle.value"
       :toolbar-auto-hide-locked="stealthAutoHide.toolbarAutoHideLocked.value"
@@ -733,6 +744,7 @@ defineExpose({ chromeLocks, stealthAutoHide, stealthWindowLeaveWatcher })
       :body-hidden="stealthAutoHide.bodyHidden.value"
       @toggle-toolbar-auto-hide="stealthAutoHide.setToolbarAutoHideEnabled"
       @toggle-body-auto-hide="stealthAutoHide.setBodyAutoHideEnabled"
+      @toggle-body-follow-pointer="stealthAutoHide.setBodyFollowPointerEnabled"
       @mouseenter="usesChromeZones && (webHotZones.top = true)"
       @mouseleave="usesChromeZones && (webHotZones.top = false)"
     />
@@ -745,7 +757,7 @@ defineExpose({ chromeLocks, stealthAutoHide, stealthWindowLeaveWatcher })
       @mouseleave="webHotZones.bottom = false"
     ></div>
     <BottomBar
-      :visible="chrome.bottomVisible.value"
+      :visible="bottomBarVisible"
       :interactive="chrome.bottomInteractive.value"
       :solid="chrome.bottomSolid.value"
       :is-dark-theme="isDarkTheme"

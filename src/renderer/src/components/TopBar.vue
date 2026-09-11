@@ -22,6 +22,7 @@ const props = defineProps({
   solid: { type: Boolean, default: false },
   toolbarAutoHideEnabled: { type: Boolean, default: false },
   bodyAutoHideEnabled: { type: Boolean, default: false },
+  bodyFollowPointerEnabled: { type: Boolean, default: false },
   bodyAutoHideAvailable: { type: Boolean, default: false },
   bodyAutoHideDisabledTitle: { type: String, default: '' },
   toolbarAutoHideLocked: { type: Boolean, default: false },
@@ -30,7 +31,11 @@ const props = defineProps({
   bodyHidden: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['toggle-toolbar-auto-hide', 'toggle-body-auto-hide'])
+const emit = defineEmits([
+  'toggle-toolbar-auto-hide',
+  'toggle-body-auto-hide',
+  'toggle-body-follow-pointer'
+])
 
 const { state, dispatch } = useAppState()
 const { goHome } = useBrowser()
@@ -117,6 +122,11 @@ function toggleToolbarAutoHide(value) {
 
 function toggleBodyAutoHide(value) {
   emit('toggle-body-auto-hide', value)
+  releaseTopFocusForAutoHideCommand()
+}
+
+function toggleBodyFollowPointer(value) {
+  emit('toggle-body-follow-pointer', value)
   releaseTopFocusForAutoHideCommand()
 }
 
@@ -271,6 +281,7 @@ function requestCloseWindow() {
             :mini-disabled-title="miniDisabledTitle"
             :toolbar-auto-hide-enabled="props.toolbarAutoHideEnabled"
             :body-auto-hide-enabled="props.bodyAutoHideEnabled"
+            :body-follow-pointer-enabled="props.bodyFollowPointerEnabled"
             :body-auto-hide-available="props.bodyAutoHideAvailable"
             :body-auto-hide-disabled-title="props.bodyAutoHideDisabledTitle"
             :toolbar-auto-hide-locked="props.toolbarAutoHideLocked"
@@ -282,6 +293,7 @@ function requestCloseWindow() {
             @toggle-mini="toggleMini"
             @toggle-toolbar-auto-hide="toggleToolbarAutoHide"
             @toggle-body-auto-hide="toggleBodyAutoHide"
+            @toggle-body-follow-pointer="toggleBodyFollowPointer"
           />
           <IconButton
             v-if="showCustomWindowControls"

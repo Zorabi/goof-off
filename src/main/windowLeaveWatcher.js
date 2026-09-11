@@ -3,8 +3,10 @@ import { getMainWindow } from './windowManager.js'
 import {
   STEALTH_LEAVE_MODE,
   STEALTH_REENTRY_MODE,
+  STEALTH_REVEAL_REGION_EDGES,
+  normalizeStealthRevealRegion,
   normalizeStealthWatcherMode,
-  resolveStealthRevealEdge
+  resolveStealthRevealTarget
 } from '../shared/stealthRevealRegion.js'
 
 export const WATCHER_SAMPLE_INTERVAL_MS = 50
@@ -20,7 +22,8 @@ let outsideActive = false
 let sentOutsideEpoch = null
 let reviewableOutsideEpochs = new Set()
 let watcherMode = STEALTH_LEAVE_MODE
-let activeRevealEdge = null
+let watcherRevealRegion = STEALTH_REVEAL_REGION_EDGES
+let activeRevealTarget = null
 
 function getWindow() {
   const win = getMainWindow?.()
@@ -47,7 +50,7 @@ function resetOutsideState() {
 }
 
 function resetRevealState() {
-  activeRevealEdge = null
+  activeRevealTarget = null
 }
 
 function issueOutsideCandidate({ markWatcherActive = false } = {}) {
@@ -89,11 +92,15 @@ function sampleWindowLeave() {
     return
   }
   if (watcherMode === STEALTH_REENTRY_MODE) {
-    const edge = resolveStealthRevealEdge(current.point, current.bounds)
-    if (edge && edge !== activeRevealEdge) {
-      activeRevealEdge = edge
-      current.win.webContents?.send?.(WINDOW_REENTER_CHANNEL, { watcherEpoch, edge })
-    } else if (!edge) {
+    const target = resolveStealthRevealTarget(current.point, current.bounds, watcherRevealRegion)
+    if (target && target !== activeRevealTarget) {
+      activeRevealTarget = target
+      current.win.webContents?.send?.(WINDOW_REENTER_CHANNEL, {
+        watcherEpoch,
+        edge: target,
+        revealRegion: watcherRevealRegion
+      })
+    } else if (!target) {
       resetRevealState()
     }
     return
@@ -113,12 +120,13 @@ export function enableWindowLeaveWatcher(payload = {}) {
   disableWindowLeaveWatcher()
   watcherEpoch += 1
   watcherMode = normalizeStealthWatcherMode(payload?.mode)
+  watcherRevealRegion = normalizeStealthRevealRegion(payload?.revealRegion)
   active = true
   sampling = true
   resetOutsideState()
   resetRevealState()
   timer = setInterval(sampleWindowLeave, WATCHER_SAMPLE_INTERVAL_MS)
-  return { ok: true, watcherEpoch, mode: watcherMode }
+  return { ok: true, watcherEpoch, mode: watcherMode, revealRegion: watcherRevealRegion }
 }
 
 export function disableWindowLeaveWatcher(payload = {}) {
@@ -199,7 +207,9 @@ export function getWindowLeaveWatcherState() {
     sentOutsideEpoch,
     reviewableOutsideEpochs: [...reviewableOutsideEpochs],
     watcherMode,
-    activeRevealEdge
+    watcherRevealRegion,
+    activeRevealTarget,
+    activeRevealEdge: activeRevealTarget
   }
 }
 
@@ -209,6 +219,7 @@ export function configureWindowLeaveWatcherForTest() {
   active = false
   sampling = false
   watcherMode = STEALTH_LEAVE_MODE
+  watcherRevealRegion = STEALTH_REVEAL_REGION_EDGES
   watcherEpoch = 0
   outsideEpoch = 0
   resetOutsideState()

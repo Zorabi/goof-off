@@ -6,7 +6,7 @@ import { injectEpubCtrl } from '../composables/useEpubReaderController.js'
 import Stepper from './base/Stepper.vue'
 import SegmentedControl from './base/SegmentedControl.vue'
 
-const { epubPrefs } = useReaderPrefs()
+const { epubPrefs, setEpubPrefs } = useReaderPrefs()
 const epubCtrl = injectEpubCtrl()
 
 const fontOptions = computed(() =>
@@ -20,10 +20,6 @@ const modeOptions = [
   { value: 'scroll', label: '滚动' },
   { value: 'paginate', label: '翻页' }
 ]
-
-function setEpubPrefs(patch) {
-  return window.api?.epubSetPrefs?.(patch)
-}
 
 function setFontSize(value) {
   setEpubPrefs({ fontSize: value })

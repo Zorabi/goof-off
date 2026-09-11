@@ -509,6 +509,7 @@ function createPreferencesWindow(request) {
     ...getPreferencesPlatformOptions(),
     resizable: false,
     show: false,
+    acceptFirstMouse: true,
     alwaysOnTop: false,
     webPreferences: {
       preload: join(__dirname, '../preload/preferences.js'),

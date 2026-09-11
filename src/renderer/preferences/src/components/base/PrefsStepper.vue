@@ -15,7 +15,8 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue'])
 const focused = ref(false)
-let interactionSettleTimer = null
+let pendingDisplayValue = null
+let pendingSettleTimer = null
 
 function round2(value) {
   return Math.round(value * 100) / 100
@@ -27,8 +28,17 @@ function toDisplay(modelValue) {
 
 const draftDisplayValue = ref(toDisplay(props.modelValue))
 watch([() => props.modelValue, () => props.scale, () => props.syncKey], ([modelValue]) => {
-  if (interactionSettleTimer != null) return
-  draftDisplayValue.value = toDisplay(modelValue)
+  const next = toDisplay(modelValue)
+  if (pendingDisplayValue != null) {
+    if (Object.is(next, pendingDisplayValue)) {
+      pendingDisplayValue = null
+      if (pendingSettleTimer != null) clearTimeout(pendingSettleTimer)
+      pendingSettleTimer = null
+      draftDisplayValue.value = next
+    }
+    return
+  }
+  draftDisplayValue.value = next
 })
 
 const displayValue = computed(() => draftDisplayValue.value)
@@ -45,17 +55,20 @@ function clampDisplay(value) {
 function commitDisplay(value) {
   const next = clampDisplay(round2(value))
   draftDisplayValue.value = next
+  pendingDisplayValue = next
   emit('update:modelValue', props.scale === 1 ? next : round2(next / props.scale))
-  if (interactionSettleTimer != null) clearTimeout(interactionSettleTimer)
-  interactionSettleTimer = setTimeout(() => {
-    interactionSettleTimer = null
+  if (pendingSettleTimer != null) clearTimeout(pendingSettleTimer)
+  pendingSettleTimer = setTimeout(() => {
+    pendingSettleTimer = null
+    if (pendingDisplayValue !== next) return
+    pendingDisplayValue = null
     draftDisplayValue.value = toDisplay(props.modelValue)
-  }, 180)
+  }, 1200)
   return next
 }
 
 onBeforeUnmount(() => {
-  if (interactionSettleTimer != null) clearTimeout(interactionSettleTimer)
+  if (pendingSettleTimer != null) clearTimeout(pendingSettleTimer)
 })
 
 function bump(direction) {

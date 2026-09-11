@@ -90,7 +90,7 @@ npm run dev
 - The default user agent (UA) is iPhone, which gives common content sites a more compact mobile layout. If a page does not display correctly, switch the UA in Preferences or create an override for the current site.
 - After a page opens, the top bar shows only its current domain by default. Click the address bar to expand the full URL and enter a new one.
 - Click “隐藏媒体” (Hide Media) in the bottom bar to hide regular images, audio, and video, leaving a cleaner reading view.
-- After enabling “背景隐去” (Hide Background), click “网页素览” (Plain View) in the bottom bar when the controls are not merged to remove or soften page backgrounds. If the controls have been merged into “隐身阅读” (Stealth Reading) in Preferences, enabling that master switch also enables Plain View. Disabling Plain View refreshes the current page to restore its original styles.
+- After enabling “背景隐去” (Hide Background), click “网页素览” (Plain View) in the bottom bar to remove or soften page backgrounds. Disabling Plain View refreshes the current page to restore its original styles.
 
 <p align="center">
   <img src="./.github/assets/web.webp" width="900" alt="Opening a quick site, expanding the address bar, hiding media, and enabling Plain View" />
@@ -115,14 +115,14 @@ Goof Off uses a frameless window on both macOS and Windows 11. Hold one of these
 
 1. Open a file or web page, click “视觉控制” (Visual Controls) in the bottom bar, and enable **背景隐去 (Hide Background)**.
 2. To make the interface less conspicuous, enable **界面淡化 (Fade UI)** and adjust its intensity. TXT and EPUB text colors and reading backgrounds can be adjusted further in Preferences.
-3. Open the “更多” (More) menu in the top bar and enable **工具栏自动隐藏 (Auto-hide Toolbars)** or **主体自动隐藏 (Auto-hide Body)** as needed. Enabling Auto-hide Body also enables Auto-hide Toolbars; you can then disable Auto-hide Toolbars independently without affecting Auto-hide Body.
+3. Open the “更多” (More) menu in the top bar and enable **工具栏自动隐藏 (Auto-hide Toolbars)** or **主体自动隐藏 (Auto-hide Body)** as needed. Enabling Auto-hide Body also enables Auto-hide Toolbars; you can then disable Auto-hide Toolbars independently without affecting Auto-hide Body. Enable **主体跟随鼠标 (Body Follows Pointer)** if the body and status bar should appear and disappear together as the pointer enters and leaves the window.
 4. When the pointer leaves the window, the enabled toolbars or body content automatically disappear. While the body is hidden, macOS and Windows 11 also enable mouse click-through, so clicks go directly to the window underneath.
 
 - **Bring back the toolbars**: Move the pointer over a button area in the top or bottom bar, or near the bottom edge of the top bar or the top edge of the bottom bar, to bring back the corresponding toolbar. Blank drag regions do not trigger it. Hidden toolbars keep their original layout space, so the document does not expand into those areas.
-- **Bring back the body**: Once the body is hidden, move the pointer into the full-width 44 px re-entry band at the top or bottom edge to restore the reading content. The top drag strip is included; the body itself remains click-through until it is restored.
+- **Bring back the body**: By default, move the pointer into the full-width 44 px re-entry band at the top or bottom edge to restore the reading content. The top drag strip is included. With “主体跟随鼠标” (Body Follows Pointer) enabled, entering anywhere in the window shows the body and status bar; leaving the window hides both.
 - **Web media**: Any audio or video playing on a web page is paused before the page body is hidden. Playback does not resume automatically when the body returns.
 
-> Auto-hide works in normal Home, History, web, and file views when Hide Background is enabled, while Mini Mode does not display the options. Both switches last only for the current app session and are not written to long-term preferences. Disabling Hide Background temporarily suspends auto-hide without resetting the current session's choices; enabling it again restores those choices.
+> Auto-hide works in normal Home, History, web, and file views when Hide Background is enabled, while Mini Mode does not display the options. Auto-hide and pointer-follow options last only for the current app session and are not written to long-term preferences. Disabling Hide Background temporarily suspends auto-hide without resetting the current session's choices; enabling it again restores those choices.
 
 ### Boss keys
 
@@ -171,7 +171,7 @@ While reading TXT or EPUB, choose “更多 → 精简模式” (More → Mini M
 <details>
 <summary><strong>What else can I change in Preferences?</strong></summary>
 
-- **Visual**: Auto / light / dark theme, Stealth Reading, UI fade intensity, and TXT / EPUB text colors and gradient backgrounds.
+- **Visual**: Auto / light / dark theme, Hide Background, Fade UI, UI fade intensity, and TXT / EPUB text colors and gradient backgrounds.
 - **Modes**: Web UA, compatibility mode, scrollbars, zoom, and site overrides, plus default typography and auto page-turn settings for TXT / EPUB / PDF.
 - **Shortcuts**: Boss keys, custom page-turn keys, and a reference for built-in shortcuts.
 - **System**: Startup restore, history, taskbar / Dock icon, diagnostic logs, cache cleanup, app reset, and configuration import / export.

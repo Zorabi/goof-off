@@ -64,21 +64,22 @@ export function resolveEffectiveOpacity(prefs) {
 export function applyTransparencyToggle(prefs, toggle) {
   const current = normalizeTransparencyPrefs(prefs)
   if (!toggle || typeof toggle.value !== 'boolean') return current
-  if (current.merged) {
-    if (toggle.kind !== 'unified') return current
+  // The user-facing control is always unified. Keep accepting legacy split
+  // records, but promote them to the unified state on the next toggle.
+  if (toggle.kind === 'unified') {
     return normalizeTransparencyPrefs({
       ...current,
+      merged: true,
       windowEnabled: toggle.value,
       contentEnabled: toggle.value
     })
   }
-  if (toggle.kind === 'unified') return current
   if (toggle.kind === 'window') {
-    return normalizeTransparencyPrefs({ ...current, windowEnabled: toggle.value })
+    return normalizeTransparencyPrefs({ ...current, merged: false, windowEnabled: toggle.value })
   }
   if (toggle.kind === 'content') {
     if (!current.windowEnabled) return current
-    return normalizeTransparencyPrefs({ ...current, contentEnabled: toggle.value })
+    return normalizeTransparencyPrefs({ ...current, merged: false, contentEnabled: toggle.value })
   }
   return current
 }

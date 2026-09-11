@@ -19,7 +19,15 @@ const activePage = ref('mode')
 const { contentMode, fileKind, recommendedMode } = usePrefsContext()
 const isWindows = window.api?.platformPolicy?.family === 'windows'
 
+function selectPage(pageId, event) {
+  if (event?.button != null && event.button !== 0) return
+  event?.preventDefault?.()
+  event?.stopPropagation?.()
+  activePage.value = pageId
+}
+
 function closePreferences() {
+  document.activeElement?.blur?.()
   window.api.closePreferences?.()
 }
 </script>
@@ -51,7 +59,8 @@ function closePreferences() {
           class="prefs-nav__item"
           :class="{ active: activePage === page.id }"
           :data-test="`top-page-${page.id}`"
-          @click="activePage = page.id"
+          :aria-current="activePage === page.id ? 'page' : undefined"
+          @click="selectPage(page.id, $event)"
         >
           {{ page.label }}
         </button>
@@ -59,18 +68,20 @@ function closePreferences() {
     </header>
 
     <main class="prefs-scroll">
-      <template v-if="activePage === 'visual'">
+      <div v-show="activePage === 'visual'" class="prefs-page" data-test="page-visual">
         <ThemePrefsSection />
         <TransparencyPrefsSection />
         <FileVisualPrefsSection :disabled="contentMode === 'file' && fileKind === 'pdf'" />
-      </template>
-      <ModePrefsSection
-        v-else-if="activePage === 'mode'"
-        :initial-mode="recommendedMode"
-        :content-mode="contentMode"
-      />
-      <ShortcutPrefsSection v-else-if="activePage === 'shortcuts'" />
-      <SystemPrefsSection v-else />
+      </div>
+      <div v-show="activePage === 'mode'" class="prefs-page" data-test="page-mode">
+        <ModePrefsSection :initial-mode="recommendedMode" :content-mode="contentMode" />
+      </div>
+      <div v-show="activePage === 'shortcuts'" class="prefs-page" data-test="page-shortcuts">
+        <ShortcutPrefsSection />
+      </div>
+      <div v-show="activePage === 'system'" class="prefs-page" data-test="page-system">
+        <SystemPrefsSection />
+      </div>
     </main>
   </div>
 </template>

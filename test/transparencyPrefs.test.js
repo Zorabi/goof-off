@@ -33,6 +33,32 @@ test('unified transparency toggle changes both visible layers', () => {
   assert.equal(disabled.contentEnabled, false)
 })
 
+test('legacy split transparency is promoted when using the unified control', () => {
+  const next = applyTransparencyToggle(
+    normalizeTransparencyPrefs({ merged: false, windowEnabled: true, contentEnabled: false }),
+    { kind: 'unified', value: true }
+  )
+
+  assert.equal(next.merged, true)
+  assert.equal(next.windowEnabled, true)
+  assert.equal(next.contentEnabled, true)
+})
+
+test('independent transparency controls remain available after a merged legacy record', () => {
+  const current = normalizeTransparencyPrefs({
+    merged: true,
+    windowEnabled: true,
+    contentEnabled: true
+  })
+  const contentOff = applyTransparencyToggle(current, { kind: 'content', value: false })
+  const windowOff = applyTransparencyToggle(contentOff, { kind: 'window', value: false })
+
+  assert.equal(contentOff.merged, false)
+  assert.equal(contentOff.windowEnabled, true)
+  assert.equal(contentOff.contentEnabled, false)
+  assert.equal(windowOff.windowEnabled, false)
+})
+
 test('popover protocol rejects a fully invisible interface', () => {
   const snapshot = {
     id: 'visual',
@@ -52,5 +78,16 @@ test('popover protocol rejects a fully invisible interface', () => {
   assert.equal(
     validatePopoverAction({ id: 'visual', action: 'set-content-level', value: 0 }).ok,
     false
+  )
+})
+
+test('popover protocol accepts the pointer-follow body command', () => {
+  assert.equal(
+    validatePopoverAction({
+      id: 'more-menu',
+      action: 'command',
+      command: 'body-follow-pointer'
+    }).ok,
+    true
   )
 })

@@ -4,16 +4,12 @@ import BaseSwitch from './base/Switch.vue'
 import { MIN_INTERFACE_OPACITY } from '../../../shared/transparencyPrefs.js'
 
 const props = defineProps({
-  merged: { type: Boolean, required: true },
   windowEnabled: { type: Boolean, required: true },
   contentEnabled: { type: Boolean, required: true },
   contentToggleDisabled: { type: Boolean, default: false },
-  contentToggleDisabledReason: { type: String, default: '' },
   contentLevel: { type: Number, required: true },
   zoom: { type: Number, required: true },
   wheelSpeed: { type: Number, required: true },
-  plainView: { type: Boolean, required: true },
-  hideMedia: { type: Boolean, required: true },
   webControlsVisible: { type: Boolean, default: true },
   embedded: { type: Boolean, default: false }
 })
@@ -23,8 +19,6 @@ const emit = defineEmits([
   'update:contentLevel',
   'update:zoom',
   'update:wheelSpeed',
-  'update:plainView',
-  'update:hideMedia',
   'range-commit'
 ])
 
@@ -91,22 +85,16 @@ function commitRange(field, eventName, event) {
 
 onBeforeUnmount(flushRangeEmits)
 
-const plainViewVisible = computed(
-  () => !props.merged && props.webControlsVisible && props.windowEnabled
-)
 const contentLevelPercent = computed(() => `${Math.round(contentLevelDraft.value * 100)}%`)
 const contentLevelDisabled = computed(
-  () => props.contentToggleDisabled || props.contentEnabled !== true
+  () => props.contentToggleDisabled || props.windowEnabled !== true || props.contentEnabled !== true
 )
 const contentLevelTitle = computed(() => {
-  if (props.contentToggleDisabled) return '需先开启背景隐去'
-  if (!props.contentEnabled) return '需先开启界面淡化'
+  if (props.windowEnabled !== true) return '需先开启背景隐去'
+  if (!props.contentEnabled) return '开启界面淡化后可调'
   return ''
 })
-const contentToggleTitle = computed(() => {
-  if (!props.contentToggleDisabled) return ''
-  return '需先开启背景隐去'
-})
+const contentToggleTitle = computed(() => (props.windowEnabled === true ? '' : '需先开启背景隐去'))
 </script>
 
 <template>
@@ -114,27 +102,18 @@ const contentToggleTitle = computed(() => {
     class="visual-control-panel"
     :class="{ embedded: props.embedded, 'is-range-adjusting': activeRange !== null }"
   >
-    <template v-if="props.merged">
-      <BaseSwitch
-        label="隐身阅读"
-        :model-value="props.windowEnabled"
-        @update:model-value="emit('toggle-transparency', { kind: 'unified', value: $event })"
-      />
-    </template>
-    <template v-else>
-      <BaseSwitch
-        label="背景隐去"
-        :model-value="props.windowEnabled"
-        @update:model-value="emit('toggle-transparency', { kind: 'window', value: $event })"
-      />
-      <BaseSwitch
-        label="界面淡化"
-        :model-value="props.contentEnabled"
-        :disabled="props.contentToggleDisabled"
-        :title="contentToggleTitle"
-        @update:model-value="emit('toggle-transparency', { kind: 'content', value: $event })"
-      />
-    </template>
+    <BaseSwitch
+      label="背景隐去"
+      :model-value="props.windowEnabled"
+      @update:model-value="emit('toggle-transparency', { kind: 'window', value: $event })"
+    />
+    <BaseSwitch
+      label="界面淡化"
+      :model-value="props.contentEnabled"
+      :disabled="props.contentToggleDisabled || props.windowEnabled !== true"
+      :title="contentToggleTitle"
+      @update:model-value="emit('toggle-transparency', { kind: 'content', value: $event })"
+    />
     <div class="slider-group content-level-group">
       <label class="slider-label">
         <span>界面淡化强度</span>
@@ -188,19 +167,6 @@ const contentToggleTitle = computed(() => {
           @pointercancel="commitRange('wheel-speed', 'update:wheelSpeed', $event)"
         />
       </div>
-      <BaseSwitch
-        label="隐藏媒体"
-        :model-value="props.hideMedia"
-        @update:model-value="emit('update:hideMedia', $event)"
-      />
-    </template>
-    <template v-if="plainViewVisible">
-      <div class="divider"></div>
-      <BaseSwitch
-        label="网页素览"
-        :model-value="props.plainView"
-        @update:model-value="emit('update:plainView', $event)"
-      />
     </template>
   </div>
 </template>

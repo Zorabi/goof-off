@@ -56,28 +56,28 @@ select {
   /* 基底 */
   --prefs-bg-base: #1b1d22;
   /* 文字四阶 + 两个专用色 */
-  --prefs-text-strong: #ECEEF2;
-  --prefs-text-label: #D9DDE5;
-  --prefs-text-dim: #8B93A3;
-  --prefs-text-faint: #6E7686;
-  --prefs-text-soft: #B7BDC9;
-  --prefs-text-kbd: #C9CFDA;
+  --prefs-text-strong: #eceef2;
+  --prefs-text-label: #d9dde5;
+  --prefs-text-dim: #8b93a3;
+  --prefs-text-faint: #6e7686;
+  --prefs-text-soft: #b7bdc9;
+  --prefs-text-kbd: #c9cfda;
   /* 语义 */
-  --prefs-accent: #7E9BC4;
-  --prefs-action: #9FB4D1;
-  --prefs-danger: #E08A72;
-  --prefs-success: #8FB09A;
+  --prefs-accent: #7e9bc4;
+  --prefs-action: #9fb4d1;
+  --prefs-danger: #e08a72;
+  --prefs-success: #8fb09a;
   /* 表面 */
   --prefs-fill: rgba(255, 255, 255, 0.065);
   --prefs-fill-kbd: rgba(255, 255, 255, 0.07);
   --prefs-fill-ghost: rgba(255, 255, 255, 0.04);
   --prefs-track: rgba(255, 255, 255, 0.12);
   --prefs-hairline: rgba(255, 255, 255, 0.07);
-  --prefs-thumb: #D6DBE4;
+  --prefs-thumb: #d6dbe4;
   --prefs-swatch-border: rgba(255, 255, 255, 0.18);
   --prefs-listening-bg: rgba(126, 155, 196, 0.13);
   --prefs-listening-ring: rgba(126, 155, 196, 0.55);
-  --prefs-listening-text: #AFC4E0;
+  --prefs-listening-text: #afc4e0;
   --prefs-focus-halo: rgba(126, 155, 196, 0.35);
   /* 几何 */
   --prefs-radius: 7px;
@@ -165,13 +165,19 @@ select {
 }
 
 .prefs-nav__item {
+  display: inline-flex;
+  align-items: center;
   position: relative;
-  padding: 6px 1px 9px;
+  z-index: 1;
+  min-height: 44px;
+  padding: 6px 4px 9px;
   border: 0;
   background: none;
   font-size: var(--prefs-fs-label);
   color: var(--prefs-text-dim);
   cursor: pointer;
+  touch-action: manipulation;
+  -webkit-app-region: no-drag;
   transition: color var(--motion-micro) ease;
 }
 

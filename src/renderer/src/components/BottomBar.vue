@@ -49,7 +49,7 @@ const ctrl = injectTxtReaderController()
 const epub = injectEpub()
 const epubCtrl = injectEpubCtrl()
 const pdf = injectPdf()
-const { txtPrefs, epubPrefs, pdfPrefs, setEpubPrefs, setPdfPrefs } = useReaderPrefs()
+const { txtPrefs, epubPrefs, pdfPrefs, setTxtPrefs, setEpubPrefs, setPdfPrefs } = useReaderPrefs()
 const isTxt = computed(() => state.content === 'file' && state.fileKind === 'txt')
 const isEpub = computed(() => state.content === 'file' && state.fileKind === 'epub')
 const isPdf = computed(() => state.content === 'file' && state.fileKind === 'pdf')
@@ -235,11 +235,11 @@ function toggleTxtAutoTurn() {
 }
 
 function setTxtAutoTurnSec(value) {
-  return window.api?.txtSetPrefs?.({ autoTurnSec: value })
+  return setTxtPrefs({ autoTurnSec: value })
 }
 
 function setEpubAutoTurnSec(value) {
-  return window.api?.epubSetPrefs?.({ autoTurnSec: value })
+  return setEpubPrefs({ autoTurnSec: value })
 }
 
 const epubCountdownText = computed(() => {
@@ -376,15 +376,19 @@ const visualPopoverSnapshot = computed(() => ({
 }))
 
 async function applyUnifiedTransparencyToggle(value, { source = 'bottom-bar' } = {}) {
-  const previousPlainView = webPrefs.value.plainView
   await setTransparencyToggle('unified', value)
+  // Plain-view CSS only belongs to the active webview.  Updating it while a
+  // file reader is active needlessly queues WebContents CSS work and can leave
+  // the next transparency toggle waiting forever.  Web mode keeps the legacy
+  // synchronization, while file mode applies the unified toggle immediately.
+  if (!webControlsVisible.value || webPrefs.value.plainView === value) return
   try {
     await setWebPrefs({ plainView: value })
   } catch (error) {
     try {
       await refreshWebPrefs()
     } catch {
-      webPrefs.value = { ...webPrefs.value, plainView: previousPlainView }
+      webPrefs.value = { ...webPrefs.value, plainView: !value }
     }
     logDiagnosticError('transparency.unified_plain_view_sync', error, {
       value,
@@ -817,16 +821,12 @@ onBeforeUnmount(() => {
       <template #content>
         <VisualControlPanel
           embedded
-          :merged="transparencyPrefs.merged"
           :window-enabled="transparencyPrefs.windowEnabled"
           :content-enabled="transparencyPrefs.contentEnabled"
           :content-toggle-disabled="contentToggleDisabled"
-          :content-toggle-disabled-reason="contentToggleDisabledReason"
           :content-level="transparencyPrefs.contentLevel"
           :zoom="sessionZoom"
           :wheel-speed="webPrefs.wheelSpeed"
-          :plain-view="webPrefs.plainView"
-          :hide-media="webPrefs.hideMedia"
           :web-controls-visible="webControlsVisible"
           @toggle-transparency="applyTransparencyAction($event.kind, $event.value, 'bottom-bar')"
           @update:content-level="
@@ -850,8 +850,6 @@ onBeforeUnmount(() => {
               value: $event
             })
           "
-          @update:plain-view="setWebPrefs({ plainView: $event })"
-          @update:hide-media="setWebPrefs({ hideMedia: $event })"
           @range-commit="visualActionScheduler.commit()"
         />
       </template>

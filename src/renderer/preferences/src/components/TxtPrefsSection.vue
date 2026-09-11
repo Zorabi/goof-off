@@ -1,6 +1,5 @@
 <script setup>
 import { FONT_FAMILY_OPTIONS } from '@renderer/constants/fontFamilyOptions.js'
-import { logDiagnostic, logDiagnosticError } from '@renderer/composables/useDiagnosticLog.js'
 import { usePreferenceSection } from '../composables/usePreferenceSection.js'
 import PrefsSelect from './base/PrefsSelect.vue'
 import PrefsStepper from './base/PrefsStepper.vue'
@@ -20,47 +19,23 @@ const encodingOptions = [
   { value: 'GBK', label: 'GBK' },
   { value: 'GB2312', label: 'GB2312' }
 ]
-const { prefs, status, readiness, writable, revision, isDisposed, apply, savePatch } =
-  usePreferenceSection({
-    defaults,
-    get: window.api.txtGetPrefs,
-    set: window.api.txtSetPrefs,
-    listen: window.api.onTxtPrefsChange
-  })
+const { prefs, status, readiness, writable, revision, savePatch } = usePreferenceSection({
+  defaults,
+  get: window.api.txtGetPrefs,
+  set: window.api.txtSetPrefs,
+  listen: window.api.onTxtPrefsChange
+})
 
 function setNumber(field, value) {
-  savePatch({ [field]: value })
+  return savePatch({ [field]: value })
 }
 
 function setEncoding(value) {
-  savePatch({ defaultEncoding: value || null })
+  return savePatch({ defaultEncoding: value || null })
 }
 
-async function saveFontFamily(value) {
-  if (!writable.value || isDisposed()) return prefs.value
-  try {
-    const next = await window.api.txtSetPrefs({ fontFamily: value })
-    if (isDisposed()) return prefs.value
-    apply(next)
-    status.value = { kind: '', text: '' }
-    logDiagnostic('reader.font_family_change', {
-      kind: 'txt',
-      fontFamily: value,
-      source: 'preferences',
-      ok: true
-    })
-    return next
-  } catch (error) {
-    if (isDisposed()) return prefs.value
-    status.value = { kind: 'error', text: error?.message || '保存失败' }
-    logDiagnosticError('reader.font_family_change', error, {
-      kind: 'txt',
-      fontFamily: value,
-      source: 'preferences',
-      ok: false
-    })
-    return prefs.value
-  }
+function saveFontFamily(value) {
+  return savePatch({ fontFamily: value })
 }
 </script>
 

@@ -10,7 +10,7 @@ import SegmentedControl from './base/SegmentedControl.vue'
 const ENCODINGS = ['UTF-8', 'GBK', 'GB2312', 'Big5']
 
 const txt = injectTxt()
-const { txtPrefs } = useReaderPrefs()
+const { txtPrefs, setTxtPrefs } = useReaderPrefs()
 
 const fontOptions = computed(() =>
   FONT_FAMILY_OPTIONS.map((option) => ({
@@ -25,10 +25,6 @@ const encodingOptions = computed(() =>
   }))
 )
 const lowConfidence = computed(() => (txt?.confidence.value ?? 1) < 0.5)
-
-function setTxtPrefs(patch) {
-  return window.api?.txtSetPrefs?.(patch)
-}
 
 function setFontSize(value) {
   setTxtPrefs({ fontSize: value })
