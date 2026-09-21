@@ -131,11 +131,52 @@ let navigationTimeout = null
 let locationReportTimer = null
 let lastKnownLocation = null
 let lastViewportSize = null
+let pendingChapterTarget = null
 let chapterTextNodeIndexCache = null
 let chapterTextNodeIndexGeneration = 0
 
 function getScrollContainer() {
   return rendition?.manager?.container || containerRef.value
+}
+
+function canonicalChapterHref(href) {
+  if (!href) return ''
+  try {
+    return epub.book.value?.canonical(href).split('#')[0] || ''
+  } catch {
+    return String(href).split('#')[0]
+  }
+}
+
+function beginChapterNavigation(href) {
+  const canonicalHref = canonicalChapterHref(href)
+  if (!canonicalHref) return null
+  const target = { href, canonicalHref }
+  pendingChapterTarget = target
+  return target
+}
+
+function clearPendingChapterNavigation(target) {
+  if (pendingChapterTarget === target) pendingChapterTarget = null
+}
+
+function adjacentChapterHref(direction) {
+  const location = lastKnownLocation || rendition?.location
+  const section =
+    getSectionForCfi(location?.start?.cfi) ||
+    epub.book.value?.spine?.get?.(location?.start?.href) ||
+    null
+  const adjacent = direction === 'next' ? section?.next?.() : section?.prev?.()
+  return adjacent?.href || ''
+}
+
+function resizeAnchor() {
+  return (
+    pendingChapterTarget?.href ||
+    lastKnownLocation?.start?.cfi ||
+    rendition?.location?.start?.cfi ||
+    undefined
+  )
 }
 
 function hideScrollbar(el) {
@@ -273,10 +314,16 @@ function scrollUp() {
 
 function navigateChapter(direction) {
   if (!rendition) return
+  const target = beginChapterNavigation(adjacentChapterHref(direction))
   ctrl.isNavigating.value = true
   autoTurn.pause()
 
-  direction === 'next' ? rendition.next() : rendition.prev()
+  Promise.resolve(direction === 'next' ? rendition.next() : rendition.prev()).catch(() => {
+    clearPendingChapterNavigation(target)
+    clearTimeout(navigationTimeout)
+    ctrl.isNavigating.value = false
+    autoTurn.resume()
+  })
 
   rendition.once('rendered', () => {
     clearTimeout(navigationTimeout)
@@ -290,6 +337,7 @@ function navigateChapter(direction) {
   })
 
   navigationTimeout = setTimeout(() => {
+    clearPendingChapterNavigation(target)
     ctrl.isNavigating.value = false
     autoTurn.resume()
   }, 3000)
@@ -297,15 +345,20 @@ function navigateChapter(direction) {
 
 function goToChapter(href) {
   if (!rendition?.display) return false
+  const target = beginChapterNavigation(href)
   ctrl.isNavigating.value = true
   try {
     Promise.resolve(rendition.display(href))
-      .catch(() => false)
+      .catch(() => {
+        clearPendingChapterNavigation(target)
+        return false
+      })
       .finally(() => {
         ctrl.isNavigating.value = false
         reportLocationNow()
       })
   } catch {
+    clearPendingChapterNavigation(target)
     ctrl.isNavigating.value = false
     return false
   }
@@ -961,9 +1014,13 @@ function remindIframeRepaint() {
 
 function handleRelocated(location) {
   if (!location?.start?.href) return
+  const canonicalHref = canonicalChapterHref(location.start.href)
+  if (pendingChapterTarget && canonicalHref !== pendingChapterTarget.canonicalHref) {
+    return
+  }
+  pendingChapterTarget = null
   lastKnownLocation = location
   const chapterLabel = matchTocChapter(location.start.href)
-  const canonicalHref = epub.book.value.canonical(location.start.href).split('#')[0]
   const spineIndex = spineIndexFromLocation(location)
   const fileId = epub.fileId.value || ''
   ctrl.currentChapterLabel.value = chapterLabel
@@ -1013,7 +1070,9 @@ function handleViewportResize(entries) {
   }
   if (lastViewportSize?.width === size.width && lastViewportSize?.height === size.height) return
   lastViewportSize = size
-  if (rendition) rendition.resize()
+  // epub.js 会在 resize 后重新 display 传入的位置；目录跳转尚未触发 relocated 时，
+  // rendition.location 仍可能指向旧章节，因此要显式携带正在跳转的目标。
+  if (rendition) rendition.resize(undefined, undefined, resizeAnchor())
   snapToPaginateBoundary()
   reportLocationNow()
 }
@@ -1064,6 +1123,7 @@ onMounted(async () => {
     clearFileDragContentListeners()
     clearContentPointerListeners()
     clearChapterTextNodeIndexCache()
+    pendingChapterTarget = null
     ctrl.resetSearchAnchor()
     if (rendition) {
       rendition.destroy()
@@ -1126,6 +1186,7 @@ onUnmounted(() => {
   cancelImageLayoutSettlement = null
   imageVisibilityHookRegistered = false
   clearChapterTextNodeIndexCache()
+  pendingChapterTarget = null
   ctrl.resetSearchAnchor()
   if (rendition) {
     rendition.destroy()
