@@ -131,6 +131,7 @@ let navigationTimeout = null
 let locationReportTimer = null
 let lastKnownLocation = null
 let lastViewportSize = null
+let currentChapterTarget = null
 let pendingChapterTarget = null
 let chapterTextNodeIndexCache = null
 let chapterTextNodeIndexGeneration = 0
@@ -151,13 +152,16 @@ function canonicalChapterHref(href) {
 function beginChapterNavigation(href) {
   const canonicalHref = canonicalChapterHref(href)
   if (!canonicalHref) return null
-  const target = { href, canonicalHref }
+  const target = { href, canonicalHref, previous: currentChapterTarget }
+  currentChapterTarget = target
   pendingChapterTarget = target
   return target
 }
 
 function clearPendingChapterNavigation(target) {
-  if (pendingChapterTarget === target) pendingChapterTarget = null
+  if (pendingChapterTarget !== target) return
+  pendingChapterTarget = null
+  if (currentChapterTarget === target) currentChapterTarget = target?.previous || null
 }
 
 function adjacentChapterHref(direction) {
@@ -174,6 +178,7 @@ function resizeAnchor() {
   return (
     pendingChapterTarget?.href ||
     lastKnownLocation?.start?.cfi ||
+    currentChapterTarget?.href ||
     rendition?.location?.start?.cfi ||
     undefined
   )
@@ -347,7 +352,6 @@ function navigateChapter(direction) {
   })
 
   navigationTimeout = setTimeout(() => {
-    clearPendingChapterNavigation(target)
     ctrl.isNavigating.value = false
     autoTurn.resume()
   }, 3000)
@@ -932,8 +936,14 @@ async function applyImageVisibilityPreservingPosition(hideImages) {
 async function displaySavedCfi(cfi) {
   const section = getSectionForCfi(cfi)
   if (!section?.href) return false
-  await Promise.resolve(rendition.display(section.href))
-  return moveVisibleViewToCfi(cfi, section)
+  const target = beginChapterNavigation(section.href)
+  try {
+    await Promise.resolve(rendition.display(section.href))
+    return moveVisibleViewToCfi(cfi, section)
+  } catch (error) {
+    clearPendingChapterNavigation(target)
+    throw error
+  }
 }
 
 async function displayCfi(cfi) {
@@ -1025,10 +1035,14 @@ function remindIframeRepaint() {
 function handleRelocated(location) {
   if (!location?.start?.href) return
   const canonicalHref = canonicalChapterHref(location.start.href)
-  if (pendingChapterTarget && canonicalHref !== pendingChapterTarget.canonicalHref) {
+  // scrolled-doc 一次只显示一个 spine section。章节切换或 resize 产生的旧
+  // reportLocation 可能在新章节已展示后才到达；即使导航已 settled，也不能让它
+  // 覆盖当前章节的状态。
+  if (currentChapterTarget && canonicalHref !== currentChapterTarget.canonicalHref) {
     return
   }
-  pendingChapterTarget = null
+  if (pendingChapterTarget?.canonicalHref === canonicalHref) pendingChapterTarget = null
+  currentChapterTarget = { href: location.start.href, canonicalHref, previous: null }
   lastKnownLocation = location
   const chapterLabel = matchTocChapter(location.start.href)
   const spineIndex = spineIndexFromLocation(location)
@@ -1137,6 +1151,7 @@ onMounted(async () => {
     clearFileDragContentListeners()
     clearContentPointerListeners()
     clearChapterTextNodeIndexCache()
+    currentChapterTarget = null
     pendingChapterTarget = null
     ctrl.resetSearchAnchor()
     if (rendition) {
@@ -1201,6 +1216,7 @@ onUnmounted(() => {
   cancelImageLayoutSettlement = null
   imageVisibilityHookRegistered = false
   clearChapterTextNodeIndexCache()
+  currentChapterTarget = null
   pendingChapterTarget = null
   ctrl.resetSearchAnchor()
   if (rendition) {
