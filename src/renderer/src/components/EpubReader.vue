@@ -133,6 +133,7 @@ let locationReportTimer = null
 let resizeDebounceTimer = null
 let resizeGeneration = 0
 let guardedResizeManager = null
+let guardedResizeHandler = null
 let lastKnownLocation = null
 let lastViewportSize = null
 let lastAppliedViewportSize = null
@@ -249,32 +250,22 @@ function adjacentChapterHref(direction) {
   return adjacent?.href || ''
 }
 
-function resizeAnchor() {
-  return (
-    pendingChapterTarget?.href ||
-    liveViewportCfi() ||
-    lastKnownLocation?.start?.cfi ||
-    currentChapterTarget?.href ||
-    rendition?.location?.start?.cfi ||
-    undefined
-  )
+function captureResizeScrollPosition() {
+  const container = getScrollContainer()
+  if (!container || pendingChapterTarget) return null
+  return { left: container.scrollLeft, top: container.scrollTop }
 }
 
-function liveViewportCfi() {
-  const manager = rendition?.manager
-  if (!manager || !rendition?.located) return ''
-  try {
-    const rawLocation =
-      manager.isPaginated && manager.settings?.axis === 'horizontal'
-        ? manager.paginatedLocation()
-        : manager.scrolledLocation()
-    return rendition.located(rawLocation)?.start?.cfi || ''
-  } catch {
-    return ''
-  }
+function restoreResizeScrollPosition(position) {
+  const container = getScrollContainer()
+  if (!container || !position) return
+  const maxLeft = Math.max(0, container.scrollWidth - container.clientWidth)
+  const maxTop = Math.max(0, container.scrollHeight - container.clientHeight)
+  container.scrollLeft = Math.min(Math.max(0, position.left), maxLeft)
+  container.scrollTop = Math.min(Math.max(0, position.top), maxTop)
 }
 
-function reflowManagerWithoutRedisplay(manager, width, height, anchor) {
+function reflowManagerWithoutRedisplay(manager, width, height, position) {
   const stageSize = manager?.stage?.size?.(width, height)
   if (!stageSize || !manager?.layout) return
 
@@ -289,17 +280,13 @@ function reflowManagerWithoutRedisplay(manager, width, height, anchor) {
   manager.viewSettings.width = manager.layout.width
   manager.viewSettings.height = manager.layout.height
   manager.setLayout(manager.layout)
-  manager.views?.forEach?.((view) => view?.size?.(manager.layout.width, manager.layout.height))
 
   const activeRendition = rendition
   const generation = ++resizeGeneration
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       if (rendition !== activeRendition || generation !== resizeGeneration) return
-      const cfi = typeof anchor === 'string' && anchor.startsWith('epubcfi(') ? anchor : ''
-      const section = cfi ? getSectionForCfi(cfi) : null
-      if (cfi && section) moveVisibleViewToCfi(cfi, section)
-      else if (pendingChapterTarget) moveChapterTargetToTop(pendingChapterTarget)
+      restoreResizeScrollPosition(position)
       snapToPaginateBoundary()
       scheduleLocationReport(0)
     })
@@ -308,13 +295,15 @@ function reflowManagerWithoutRedisplay(manager, width, height, anchor) {
 
 function guardEpubJsResize() {
   const manager = rendition?.manager
-  if (!manager || guardedResizeManager === manager) return
+  if (!manager) return
+  if (guardedResizeManager === manager && manager.resize === guardedResizeHandler) return
   guardedResizeManager = manager
-  manager.resize = (width, height, epubcfi) => {
-    // epub.js 默认 resize 会 clear() 后再 display(旧 CFI)。连续窗口拖动会让这些
-    // display 排队，随后覆盖用户正在看的正文。这里仅重排当前 iframe，并复原当前 CFI。
-    reflowManagerWithoutRedisplay(manager, width, height, epubcfi || liveViewportCfi())
+  guardedResizeHandler = (width, height) => {
+    // epub.js 默认 resize 会 clear() 后再 display(旧 CFI)。resize 必须只重排
+    // 已经挂载的 iframe；不能从已改变的几何关系反推 CFI，更不能触发章节导航。
+    reflowManagerWithoutRedisplay(manager, width, height, captureResizeScrollPosition())
   }
+  manager.resize = guardedResizeHandler
 }
 
 function disableEpubJsWindowResize() {
@@ -1299,7 +1288,12 @@ function applyViewportResize(size) {
   lastAppliedViewportSize = size
   guardEpubJsResize()
   disableEpubJsWindowResize()
-  rendition.resize(size.width, size.height, resizeAnchor())
+  reflowManagerWithoutRedisplay(
+    rendition.manager,
+    size.width,
+    size.height,
+    captureResizeScrollPosition()
+  )
 }
 
 onMounted(async () => {
@@ -1355,6 +1349,7 @@ onMounted(async () => {
     clearTimeout(resizeDebounceTimer)
     resizeGeneration += 1
     guardedResizeManager = null
+    guardedResizeHandler = null
     currentChapterTarget = null
     pendingChapterTarget = null
     ctrl.currentTocHref.value = ''
@@ -1411,6 +1406,7 @@ onUnmounted(() => {
   clearTimeout(resizeDebounceTimer)
   resizeGeneration += 1
   guardedResizeManager = null
+  guardedResizeHandler = null
   themeUnlisten?.disconnect()
   if (resizeObserver) {
     resizeObserver.disconnect()
