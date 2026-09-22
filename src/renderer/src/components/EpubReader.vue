@@ -27,6 +27,7 @@ import {
   syncEpubImageVisibility
 } from '../composables/epubImageVisibility.js'
 import { findActiveTocItemByViewport } from './epubTocHelpers.js'
+import { clampScrollOffset, scrollOffsetForViewportAnchor } from './epubResizeHelpers.js'
 
 const props = defineProps({
   fileVisualState: { type: Object, default: null },
@@ -134,6 +135,7 @@ let resizeDebounceTimer = null
 let resizeGeneration = 0
 let guardedResizeManager = null
 let guardedResizeHandler = null
+let guardedResizeEmitHandler = null
 let lastKnownLocation = null
 let lastViewportSize = null
 let lastAppliedViewportSize = null
@@ -250,19 +252,66 @@ function adjacentChapterHref(direction) {
   return adjacent?.href || ''
 }
 
+function captureResizeViewportAnchor(container) {
+  const view = rendition?.manager?.current?.()
+  const iframe = view?.iframe
+  const document = view?.contents?.document || iframe?.contentDocument
+  if (!iframe?.isConnected || !document?.elementFromPoint) return null
+
+  const viewportBounds = container.getBoundingClientRect?.()
+  const iframeBounds = iframe.getBoundingClientRect?.()
+  const maxX = iframe.clientWidth - 1
+  const maxY = iframe.clientHeight - 1
+  if (!viewportBounds || !iframeBounds || maxX < 0 || maxY < 0) return null
+
+  const x = Math.min(maxX, Math.max(0, viewportBounds.left - iframeBounds.left + 1))
+  const y = Math.min(maxY, Math.max(0, viewportBounds.top - iframeBounds.top))
+  const hit = document.elementFromPoint(x, y)
+  const element = hit?.closest?.('p, li, blockquote, h1, h2, h3, h4, h5, h6, pre, table') || hit
+  const elementBounds = element?.getBoundingClientRect?.()
+  if (!element?.isConnected || !Number.isFinite(elementBounds?.top)) return null
+
+  return { iframe, element, inset: y - elementBounds.top }
+}
+
 function captureResizeScrollPosition() {
   const container = getScrollContainer()
   if (!container || pendingChapterTarget) return null
-  return { left: container.scrollLeft, top: container.scrollTop }
+  return {
+    left: container.scrollLeft,
+    top: container.scrollTop,
+    anchor: captureResizeViewportAnchor(container)
+  }
 }
 
 function restoreResizeScrollPosition(position) {
   const container = getScrollContainer()
   if (!container || !position) return
-  const maxLeft = Math.max(0, container.scrollWidth - container.clientWidth)
-  const maxTop = Math.max(0, container.scrollHeight - container.clientHeight)
-  container.scrollLeft = Math.min(Math.max(0, position.left), maxLeft)
-  container.scrollTop = Math.min(Math.max(0, position.top), maxTop)
+  const anchor = position.anchor
+  let top = position.top
+  if (anchor?.iframe?.isConnected && anchor.element?.isConnected) {
+    const viewportBounds = container.getBoundingClientRect?.()
+    const iframeBounds = anchor.iframe.getBoundingClientRect?.()
+    const elementBounds = anchor.element.getBoundingClientRect?.()
+    if (
+      Number.isFinite(viewportBounds?.top) &&
+      Number.isFinite(iframeBounds?.top) &&
+      Number.isFinite(elementBounds?.top)
+    ) {
+      top = scrollOffsetForViewportAnchor(
+        container.scrollTop,
+        elementBounds.top,
+        viewportBounds.top - iframeBounds.top,
+        anchor.inset
+      )
+    }
+  }
+  container.scrollLeft = clampScrollOffset(
+    position.left,
+    container.scrollWidth,
+    container.clientWidth
+  )
+  container.scrollTop = clampScrollOffset(top, container.scrollHeight, container.clientHeight)
 }
 
 function reflowManagerWithoutRedisplay(manager, width, height, position) {
@@ -296,6 +345,16 @@ function reflowManagerWithoutRedisplay(manager, width, height, position) {
 function guardEpubJsResize() {
   const manager = rendition?.manager
   if (!manager) return
+  if (manager.emit !== guardedResizeEmitHandler) {
+    const emit = manager.emit
+    guardedResizeEmitHandler = function (event, ...args) {
+      // Rendition 对 manager 的 `resized` 事件会调用 display(旧 CFI)。即使第三方
+      // 路径绕过了下方的 resize 覆盖，也不能允许该事件重新触发章节导航。
+      if (event === 'resized') return undefined
+      return emit.call(this, event, ...args)
+    }
+    manager.emit = guardedResizeEmitHandler
+  }
   if (guardedResizeManager === manager && manager.resize === guardedResizeHandler) return
   guardedResizeManager = manager
   guardedResizeHandler = (width, height) => {
@@ -1350,6 +1409,7 @@ onMounted(async () => {
     resizeGeneration += 1
     guardedResizeManager = null
     guardedResizeHandler = null
+    guardedResizeEmitHandler = null
     currentChapterTarget = null
     pendingChapterTarget = null
     ctrl.currentTocHref.value = ''
@@ -1407,6 +1467,7 @@ onUnmounted(() => {
   resizeGeneration += 1
   guardedResizeManager = null
   guardedResizeHandler = null
+  guardedResizeEmitHandler = null
   themeUnlisten?.disconnect()
   if (resizeObserver) {
     resizeObserver.disconnect()
