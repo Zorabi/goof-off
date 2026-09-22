@@ -149,12 +149,82 @@ function canonicalChapterHref(href) {
   }
 }
 
+function canonicalTocHref(href) {
+  if (!href) return ''
+  try {
+    return epub.book.value?.canonical(href) || ''
+  } catch {
+    return String(href)
+  }
+}
+
+function tocFragmentTarget(href) {
+  const hashIndex = String(href || '').indexOf('#')
+  if (hashIndex < 0) return ''
+  const fragment = String(href).slice(hashIndex + 1)
+  try {
+    return `#${decodeURIComponent(fragment)}`
+  } catch {
+    return `#${fragment}`
+  }
+}
+
+function visitTocItems(items, visit) {
+  for (const item of items) {
+    if (visit(item) === false) return false
+    if (item.subitems?.length && visitTocItems(item.subitems, visit) === false) return false
+  }
+  return true
+}
+
+function findTocItemByHref(href) {
+  const target = canonicalTocHref(href)
+  if (!target) return null
+  let match = null
+  visitTocItems(epub.toc.value, (item) => {
+    if (canonicalTocHref(item.href) !== target) return true
+    match = item
+    return false
+  })
+  return match
+}
+
+function tocItemsForSection(canonicalSectionHref) {
+  const matches = []
+  visitTocItems(epub.toc.value, (item) => {
+    if (canonicalChapterHref(item.href) === canonicalSectionHref) matches.push(item)
+    return true
+  })
+  return matches
+}
+
+function sectionForCanonicalHref(canonicalSectionHref) {
+  const spine = epub.book.value?.spine
+  const items = spine?.spineItems || spine?.items || []
+  return (
+    items.find(
+      (section) =>
+        section?.canonical === canonicalSectionHref ||
+        canonicalChapterHref(section?.href) === canonicalSectionHref
+    ) || null
+  )
+}
+
 function beginChapterNavigation(href) {
   const canonicalHref = canonicalChapterHref(href)
   if (!canonicalHref) return null
-  const target = { href, canonicalHref, previous: currentChapterTarget }
+  const target = {
+    href,
+    canonicalHref,
+    previous: currentChapterTarget
+  }
   currentChapterTarget = target
   pendingChapterTarget = target
+  const tocItem = findTocItemByHref(href)
+  if (tocItem) {
+    ctrl.currentChapterLabel.value = tocItem.label?.trim() || ''
+    ctrl.currentTocHref.value = canonicalTocHref(tocItem.href)
+  }
   return target
 }
 
@@ -345,6 +415,7 @@ function navigateChapter(direction) {
     const el = getScrollContainer()
     if (el) {
       el.scrollTop = direction === 'prev' ? el.scrollHeight - el.clientHeight : 0
+      if (pendingChapterTarget === target) pendingChapterTarget = null
       reportLocationNow()
     }
     ctrl.isNavigating.value = false
@@ -352,6 +423,7 @@ function navigateChapter(direction) {
   })
 
   navigationTimeout = setTimeout(() => {
+    if (pendingChapterTarget === target) pendingChapterTarget = null
     ctrl.isNavigating.value = false
     autoTurn.resume()
   }, 3000)
@@ -363,13 +435,18 @@ function goToChapter(href) {
   ctrl.isNavigating.value = true
   try {
     Promise.resolve(rendition.display(href))
+      .then(async () => {
+        await alignChapterTargetToTop(target)
+        if (pendingChapterTarget === target) pendingChapterTarget = null
+        reportLocationNow()
+        return true
+      })
       .catch(() => {
         clearPendingChapterNavigation(target)
         return false
       })
       .finally(() => {
         ctrl.isNavigating.value = false
-        reportLocationNow()
       })
   } catch {
     clearPendingChapterNavigation(target)
@@ -386,21 +463,76 @@ function snapToPaginateBoundary() {
   el.scrollTop = Math.round(el.scrollTop / el.clientHeight) * el.clientHeight
 }
 
-function matchTocChapter(href) {
-  if (!epub.book.value || !epub.toc.value.length) return ''
-  const canonical = epub.book.value.canonical(href).split('#')[0]
-  function findInToc(items) {
-    for (const item of items) {
-      const itemHref = epub.book.value.canonical(item.href).split('#')[0]
-      if (itemHref === canonical) return item.label
-      if (item.subitems?.length) {
-        const found = findInToc(item.subitems)
-        if (found) return found
-      }
-    }
-    return ''
+function nextAnimationFrame() {
+  return new Promise((resolve) => requestAnimationFrame(resolve))
+}
+
+function moveChapterTargetToTop(target) {
+  if (!target || currentChapterTarget !== target) return false
+  const section = sectionForCanonicalHref(target.canonicalHref)
+  const view = section ? visibleViewForSection(section) : null
+  if (!view || !rendition?.manager) return false
+  const fragmentTarget = tocFragmentTarget(target.href)
+  if (!fragmentTarget) {
+    const offset = typeof view.offset === 'function' ? view.offset() : { left: 0, top: 0 }
+    rendition.manager.scrollTo(offset.left || 0, offset.top || 0, true)
+    return true
   }
-  return findInToc(epub.toc.value)
+  try {
+    const offset = view.locationOf(fragmentTarget)
+    const width = typeof view.width === 'function' ? view.width() : undefined
+    rendition.manager.moveTo(offset, width)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function alignChapterTargetToTop(target) {
+  if (!target) return false
+  await nextAnimationFrame()
+  moveChapterTargetToTop(target)
+  await nextAnimationFrame()
+  return moveChapterTargetToTop(target)
+}
+
+function currentTocItem(canonicalSectionHref) {
+  const items = tocItemsForSection(canonicalSectionHref)
+  if (!items.length) return null
+
+  const pending = pendingChapterTarget
+  if (pending?.canonicalHref === canonicalSectionHref) {
+    const pendingItem = findTocItemByHref(pending.href)
+    if (pendingItem) return pendingItem
+  }
+
+  const section = sectionForCanonicalHref(canonicalSectionHref)
+  const view = section ? visibleViewForSection(section) : null
+  const scrollTop = getScrollContainer()?.scrollTop
+  if (!view || !Number.isFinite(scrollTop)) return items[0]
+
+  let active = null
+  let activeTop = -Infinity
+  for (const item of items) {
+    const fragmentTarget = tocFragmentTarget(item.href)
+    let top = 0
+    try {
+      if (fragmentTarget && !view.contents?.document?.getElementById(fragmentTarget.slice(1))) {
+        continue
+      }
+      top = fragmentTarget
+        ? view.locationOf(fragmentTarget).top
+        : typeof view.offset === 'function'
+          ? view.offset().top
+          : 0
+    } catch {
+      continue
+    }
+    if (!Number.isFinite(top) || top > scrollTop + 2 || top < activeTop) continue
+    active = item
+    activeTop = top
+  }
+  return active || items[0]
 }
 
 function clearChapterTextNodeIndexCache() {
@@ -939,7 +1071,9 @@ async function displaySavedCfi(cfi) {
   const target = beginChapterNavigation(section.href)
   try {
     await Promise.resolve(rendition.display(section.href))
-    return moveVisibleViewToCfi(cfi, section)
+    const moved = moveVisibleViewToCfi(cfi, section)
+    if (pendingChapterTarget === target) pendingChapterTarget = null
+    return moved
   } catch (error) {
     clearPendingChapterNavigation(target)
     throw error
@@ -1041,14 +1175,16 @@ function handleRelocated(location) {
   if (currentChapterTarget && canonicalHref !== currentChapterTarget.canonicalHref) {
     return
   }
-  if (pendingChapterTarget?.canonicalHref === canonicalHref) pendingChapterTarget = null
-  currentChapterTarget = { href: location.start.href, canonicalHref, previous: null }
+  const activeTocItem = currentTocItem(canonicalHref)
+  if (!pendingChapterTarget) {
+    currentChapterTarget = { href: location.start.href, canonicalHref, previous: null }
+  }
   lastKnownLocation = location
-  const chapterLabel = matchTocChapter(location.start.href)
   const spineIndex = spineIndexFromLocation(location)
   const fileId = epub.fileId.value || ''
-  ctrl.currentChapterLabel.value = chapterLabel
+  ctrl.currentChapterLabel.value = activeTocItem?.label?.trim() || ''
   ctrl.currentChapterHref.value = canonicalHref
+  ctrl.currentTocHref.value = activeTocItem ? canonicalTocHref(activeTocItem.href) : canonicalHref
   ctrl.updateSearchAnchor({
     fileId,
     spineIndex,
@@ -1153,6 +1289,7 @@ onMounted(async () => {
     clearChapterTextNodeIndexCache()
     currentChapterTarget = null
     pendingChapterTarget = null
+    ctrl.currentTocHref.value = ''
     ctrl.resetSearchAnchor()
     if (rendition) {
       rendition.destroy()
@@ -1218,6 +1355,7 @@ onUnmounted(() => {
   clearChapterTextNodeIndexCache()
   currentChapterTarget = null
   pendingChapterTarget = null
+  ctrl.currentTocHref.value = ''
   ctrl.resetSearchAnchor()
   if (rendition) {
     rendition.destroy()

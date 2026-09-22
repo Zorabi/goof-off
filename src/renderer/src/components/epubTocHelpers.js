@@ -20,13 +20,17 @@ export function flattenToc(items, expanded, depth = 0) {
 
 export function findActiveNode(toc, canonicalHref, canonicalFn) {
   if (!canonicalHref) return ''
-  const target = canonicalHref.split('#')[0]
+  const target = canonicalHref
+  const targetSection = target.split('#')[0]
+  let sectionFallback = ''
 
   function search(items) {
     for (const item of items) {
       const itemHref = canonicalFn ? canonicalFn(item.href) : item.href
-      const stripped = (itemHref || '').split('#')[0]
-      if (stripped === target) return item.id
+      if (itemHref === target) return item.id
+      if (!sectionFallback && (itemHref || '').split('#')[0] === targetSection) {
+        sectionFallback = item.id
+      }
       if (item.subitems && item.subitems.length > 0) {
         const found = search(item.subitems)
         if (found) return found
@@ -35,7 +39,7 @@ export function findActiveNode(toc, canonicalHref, canonicalFn) {
     return ''
   }
 
-  return search(toc)
+  return search(toc) || sectionFallback
 }
 
 export function getParentChain(toc, targetId, chain = []) {

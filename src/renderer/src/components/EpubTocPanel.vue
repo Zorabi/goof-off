@@ -7,7 +7,7 @@ import Icon from './icons/Icon.vue'
 
 const { toc, book } = injectEpub()
 const ctrl = injectEpubCtrl()
-const { showToc, currentChapterHref, guardedGoToChapter } = ctrl
+const { showToc, currentChapterHref, currentTocHref, guardedGoToChapter } = ctrl
 
 const expandedNodes = ref(new Set())
 const bodyRef = ref(null)
@@ -24,10 +24,10 @@ function canonical(href) {
 const flatNodes = computed(() => flattenToc(toc.value, expandedNodes.value))
 
 function isActive(node) {
-  if (!currentChapterHref.value || !node.href) return false
-  const a = canonical(node.href).split('#')[0]
-  const b = currentChapterHref.value.split('#')[0]
-  return a === b
+  if (!node.href) return false
+  const activeHref = currentTocHref.value || currentChapterHref.value
+  if (!activeHref) return false
+  return canonical(node.href) === activeHref
 }
 
 function toggleExpand(id) {
@@ -61,11 +61,12 @@ function selectItem(item) {
 }
 
 function expandToActive() {
-  if (!currentChapterHref.value || !toc.value.length) {
+  const activeHref = currentTocHref.value || currentChapterHref.value
+  if (!activeHref || !toc.value.length) {
     expandedNodes.value = new Set()
     return
   }
-  const activeId = findActiveNode(toc.value, currentChapterHref.value, canonical)
+  const activeId = findActiveNode(toc.value, activeHref, canonical)
   const parents = activeId ? getParentChain(toc.value, activeId) : []
   expandedNodes.value = new Set(parents)
 }
