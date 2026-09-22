@@ -132,6 +132,7 @@ let navigationTimeout = null
 let locationReportTimer = null
 let resizeDebounceTimer = null
 let resizeGeneration = 0
+let guardedResizeManager = null
 let lastKnownLocation = null
 let lastViewportSize = null
 let lastAppliedViewportSize = null
@@ -251,11 +252,69 @@ function adjacentChapterHref(direction) {
 function resizeAnchor() {
   return (
     pendingChapterTarget?.href ||
+    liveViewportCfi() ||
     lastKnownLocation?.start?.cfi ||
     currentChapterTarget?.href ||
     rendition?.location?.start?.cfi ||
     undefined
   )
+}
+
+function liveViewportCfi() {
+  const manager = rendition?.manager
+  if (!manager || !rendition?.located) return ''
+  try {
+    const rawLocation =
+      manager.isPaginated && manager.settings?.axis === 'horizontal'
+        ? manager.paginatedLocation()
+        : manager.scrolledLocation()
+    return rendition.located(rawLocation)?.start?.cfi || ''
+  } catch {
+    return ''
+  }
+}
+
+function reflowManagerWithoutRedisplay(manager, width, height, anchor) {
+  const stageSize = manager?.stage?.size?.(width, height)
+  if (!stageSize || !manager?.layout) return
+
+  manager._stageSize = stageSize
+  manager._bounds = manager.bounds?.()
+  if (manager.isPaginated) {
+    manager.layout.calculate(stageSize.width, stageSize.height, manager.settings?.gap)
+    manager.settings.offset = manager.layout.delta / manager.layout.divisor
+  } else {
+    manager.layout.calculate(stageSize.width, stageSize.height)
+  }
+  manager.viewSettings.width = manager.layout.width
+  manager.viewSettings.height = manager.layout.height
+  manager.setLayout(manager.layout)
+  manager.views?.forEach?.((view) => view?.size?.(manager.layout.width, manager.layout.height))
+
+  const activeRendition = rendition
+  const generation = ++resizeGeneration
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (rendition !== activeRendition || generation !== resizeGeneration) return
+      const cfi = typeof anchor === 'string' && anchor.startsWith('epubcfi(') ? anchor : ''
+      const section = cfi ? getSectionForCfi(cfi) : null
+      if (cfi && section) moveVisibleViewToCfi(cfi, section)
+      else if (pendingChapterTarget) moveChapterTargetToTop(pendingChapterTarget)
+      snapToPaginateBoundary()
+      scheduleLocationReport(0)
+    })
+  })
+}
+
+function guardEpubJsResize() {
+  const manager = rendition?.manager
+  if (!manager || guardedResizeManager === manager) return
+  guardedResizeManager = manager
+  manager.resize = (width, height, epubcfi) => {
+    // epub.js 默认 resize 会 clear() 后再 display(旧 CFI)。连续窗口拖动会让这些
+    // display 排队，随后覆盖用户正在看的正文。这里仅重排当前 iframe，并复原当前 CFI。
+    reflowManagerWithoutRedisplay(manager, width, height, epubcfi || liveViewportCfi())
+  }
 }
 
 function disableEpubJsWindowResize() {
@@ -1163,12 +1222,11 @@ function remindIframeRepaint() {
 function handleRelocated(location) {
   if (!location?.start?.href) return
   const canonicalHref = canonicalChapterHref(location.start.href)
-  // scrolled-doc 一次只显示一个 spine section。章节切换或 resize 产生的旧
-  // reportLocation 可能在新章节已展示后才到达；即使导航已 settled，也不能让它
-  // 覆盖当前章节的状态。
-  if (currentChapterTarget && canonicalHref !== currentChapterTarget.canonicalHref) {
-    return
-  }
+  const pendingHref = pendingChapterTarget?.canonicalHref
+  if (pendingHref && canonicalHref !== pendingHref) return
+  // 标题必须与当前已经渲染的 iframe 同步，而不是与历史 relocated 事件同步。
+  const renderedHref = canonicalChapterHref(rendition?.manager?.current?.()?.section?.href)
+  if (renderedHref && canonicalHref !== renderedHref) return
   const activeTocItem = currentTocItem(canonicalHref)
   if (!pendingChapterTarget) {
     currentChapterTarget = { href: location.start.href, canonicalHref, previous: null }
@@ -1239,17 +1297,9 @@ function applyViewportResize(size) {
   }
 
   lastAppliedViewportSize = size
-  const activeRendition = rendition
-  const generation = ++resizeGeneration
+  guardEpubJsResize()
   disableEpubJsWindowResize()
-  activeRendition.once('displayed', () => {
-    if (rendition !== activeRendition || generation !== resizeGeneration) return
-    snapToPaginateBoundary()
-    scheduleLocationReport(0)
-  })
-  // epub.js 会在 resize 后重新 display 传入的位置；目录跳转尚未触发 relocated 时，
-  // rendition.location 仍可能指向旧章节，因此要显式携带正在跳转的目标。
-  activeRendition.resize(undefined, undefined, resizeAnchor())
+  rendition.resize(size.width, size.height, resizeAnchor())
 }
 
 onMounted(async () => {
@@ -1268,7 +1318,10 @@ onMounted(async () => {
     width: '100%',
     height: '100%'
   })
-  rendition.once('attached', disableEpubJsWindowResize)
+  rendition.once('attached', () => {
+    guardEpubJsResize()
+    disableEpubJsWindowResize()
+  })
   hideScrollbar(getScrollContainer())
 
   ensureImageVisibilityHook()
@@ -1301,6 +1354,7 @@ onMounted(async () => {
     clearChapterTextNodeIndexCache()
     clearTimeout(resizeDebounceTimer)
     resizeGeneration += 1
+    guardedResizeManager = null
     currentChapterTarget = null
     pendingChapterTarget = null
     ctrl.currentTocHref.value = ''
@@ -1322,6 +1376,7 @@ onMounted(async () => {
 
   const restoredSavedPosition = await restorePosition()
   if (!rendition) return
+  guardEpubJsResize()
   disableEpubJsWindowResize()
   reportLocationNow()
   if (restoredSavedPosition) remindIframeRepaint()
@@ -1355,6 +1410,7 @@ onUnmounted(() => {
   clearTimeout(locationReportTimer)
   clearTimeout(resizeDebounceTimer)
   resizeGeneration += 1
+  guardedResizeManager = null
   themeUnlisten?.disconnect()
   if (resizeObserver) {
     resizeObserver.disconnect()
