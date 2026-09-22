@@ -26,6 +26,7 @@ import {
   createEpubImageLayoutSettler,
   syncEpubImageVisibility
 } from '../composables/epubImageVisibility.js'
+import { findActiveTocItemByViewport } from './epubTocHelpers.js'
 
 const props = defineProps({
   fileVisualState: { type: Object, default: null },
@@ -129,8 +130,11 @@ const HIDDEN_SCROLLBAR_CLASS = 'goof-off-epub-scrollbar-hidden'
 let saveDebounceTimer = null
 let navigationTimeout = null
 let locationReportTimer = null
+let resizeDebounceTimer = null
+let resizeGeneration = 0
 let lastKnownLocation = null
 let lastViewportSize = null
+let lastAppliedViewportSize = null
 let currentChapterTarget = null
 let pendingChapterTarget = null
 let chapterTextNodeIndexCache = null
@@ -508,31 +512,21 @@ function currentTocItem(canonicalSectionHref) {
 
   const section = sectionForCanonicalHref(canonicalSectionHref)
   const view = section ? visibleViewForSection(section) : null
-  const scrollTop = getScrollContainer()?.scrollTop
-  if (!view || !Number.isFinite(scrollTop)) return items[0]
+  const viewportTop = getScrollContainer()?.getBoundingClientRect?.().top
+  const viewTop = view?.iframe?.getBoundingClientRect?.().top ?? view?.position?.().top
+  if (!view || !Number.isFinite(viewportTop) || !Number.isFinite(viewTop)) return items[0]
 
-  let active = null
-  let activeTop = -Infinity
-  for (const item of items) {
+  return findActiveTocItemByViewport(items, viewportTop, (item) => {
     const fragmentTarget = tocFragmentTarget(item.href)
-    let top = 0
+    if (!fragmentTarget) return viewTop
+    if (!view.contents?.document?.getElementById(fragmentTarget.slice(1))) return null
     try {
-      if (fragmentTarget && !view.contents?.document?.getElementById(fragmentTarget.slice(1))) {
-        continue
-      }
-      top = fragmentTarget
-        ? view.locationOf(fragmentTarget).top
-        : typeof view.offset === 'function'
-          ? view.offset().top
-          : 0
+      const localTop = view.locationOf(fragmentTarget).top
+      return Number.isFinite(localTop) ? viewTop + localTop : null
     } catch {
-      continue
+      return null
     }
-    if (!Number.isFinite(top) || top > scrollTop + 2 || top < activeTop) continue
-    active = item
-    activeTop = top
-  }
-  return active || items[0]
+  })
 }
 
 function clearChapterTextNodeIndexCache() {
@@ -1226,18 +1220,36 @@ function handleViewportResize(entries) {
   const size = observedViewportSize(entries?.[0])
   if (!lastViewportSize) {
     lastViewportSize = size
+    lastAppliedViewportSize = size
     return
   }
   if (lastViewportSize?.width === size.width && lastViewportSize?.height === size.height) return
   lastViewportSize = size
+  clearTimeout(resizeDebounceTimer)
+  resizeDebounceTimer = setTimeout(() => applyViewportResize(size), 140)
+}
+
+function applyViewportResize(size) {
+  if (!rendition) return
+  if (
+    lastAppliedViewportSize?.width === size.width &&
+    lastAppliedViewportSize?.height === size.height
+  ) {
+    return
+  }
+
+  lastAppliedViewportSize = size
+  const activeRendition = rendition
+  const generation = ++resizeGeneration
+  disableEpubJsWindowResize()
+  activeRendition.once('displayed', () => {
+    if (rendition !== activeRendition || generation !== resizeGeneration) return
+    snapToPaginateBoundary()
+    scheduleLocationReport(0)
+  })
   // epub.js 会在 resize 后重新 display 传入的位置；目录跳转尚未触发 relocated 时，
   // rendition.location 仍可能指向旧章节，因此要显式携带正在跳转的目标。
-  if (rendition) {
-    disableEpubJsWindowResize()
-    rendition.resize(undefined, undefined, resizeAnchor())
-  }
-  snapToPaginateBoundary()
-  reportLocationNow()
+  activeRendition.resize(undefined, undefined, resizeAnchor())
 }
 
 onMounted(async () => {
@@ -1287,6 +1299,8 @@ onMounted(async () => {
     clearFileDragContentListeners()
     clearContentPointerListeners()
     clearChapterTextNodeIndexCache()
+    clearTimeout(resizeDebounceTimer)
+    resizeGeneration += 1
     currentChapterTarget = null
     pendingChapterTarget = null
     ctrl.currentTocHref.value = ''
@@ -1339,6 +1353,8 @@ onUnmounted(() => {
   ctrl.unregister()
   clearTimeout(navigationTimeout)
   clearTimeout(locationReportTimer)
+  clearTimeout(resizeDebounceTimer)
+  resizeGeneration += 1
   themeUnlisten?.disconnect()
   if (resizeObserver) {
     resizeObserver.disconnect()

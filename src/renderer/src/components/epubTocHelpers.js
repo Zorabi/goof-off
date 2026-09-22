@@ -42,6 +42,22 @@ export function findActiveNode(toc, canonicalHref, canonicalFn) {
   return search(toc) || sectionFallback
 }
 
+export function findActiveTocItemByViewport(items, viewportTop, resolveTop, tolerance = 2) {
+  if (!items?.length || !Number.isFinite(viewportTop) || typeof resolveTop !== 'function') {
+    return items?.[0] || null
+  }
+
+  let active = null
+  let activeTop = -Infinity
+  for (const item of items) {
+    const top = resolveTop(item)
+    if (!Number.isFinite(top) || top > viewportTop + tolerance || top < activeTop) continue
+    active = item
+    activeTop = top
+  }
+  return active || items[0]
+}
+
 export function getParentChain(toc, targetId, chain = []) {
   for (const item of toc) {
     if (item.id === targetId) return chain
