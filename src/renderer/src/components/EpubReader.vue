@@ -309,7 +309,7 @@ function guardEpubJsResize() {
 function disableEpubJsWindowResize() {
   // epub.js 0.3.x 会自行注册一个 window.resize 监听器。它调用 manager.resize()
   // 时不会携带 cfi，随后 rendition 会重新 display 旧的 location.start.cfi。
-  // 统一交给下方的 ResizeObserver 驱动，才能保证每次缩放都使用 resizeAnchor()。
+  // 统一交给下方的 ResizeObserver 驱动；它只重排当前 iframe，不会用 CFI 导航。
   const resizeListener = rendition?.manager?.stage?.resizeFunc
   if (typeof resizeListener !== 'function') return
   window.removeEventListener('resize', resizeListener, false)
