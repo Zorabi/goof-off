@@ -179,6 +179,16 @@ function resizeAnchor() {
   )
 }
 
+function disableEpubJsWindowResize() {
+  // epub.js 0.3.x 会自行注册一个 window.resize 监听器。它调用 manager.resize()
+  // 时不会携带 cfi，随后 rendition 会重新 display 旧的 location.start.cfi。
+  // 统一交给下方的 ResizeObserver 驱动，才能保证每次缩放都使用 resizeAnchor()。
+  const resizeListener = rendition?.manager?.stage?.resizeFunc
+  if (typeof resizeListener !== 'function') return
+  window.removeEventListener('resize', resizeListener, false)
+  resizeListener.cancel?.()
+}
+
 function hideScrollbar(el) {
   if (!el) return
   el.classList?.add(HIDDEN_SCROLLBAR_CLASS)
@@ -1072,7 +1082,10 @@ function handleViewportResize(entries) {
   lastViewportSize = size
   // epub.js 会在 resize 后重新 display 传入的位置；目录跳转尚未触发 relocated 时，
   // rendition.location 仍可能指向旧章节，因此要显式携带正在跳转的目标。
-  if (rendition) rendition.resize(undefined, undefined, resizeAnchor())
+  if (rendition) {
+    disableEpubJsWindowResize()
+    rendition.resize(undefined, undefined, resizeAnchor())
+  }
   snapToPaginateBoundary()
   reportLocationNow()
 }
@@ -1093,6 +1106,7 @@ onMounted(async () => {
     width: '100%',
     height: '100%'
   })
+  rendition.once('attached', disableEpubJsWindowResize)
   hideScrollbar(getScrollContainer())
 
   ensureImageVisibilityHook()
@@ -1142,6 +1156,7 @@ onMounted(async () => {
 
   const restoredSavedPosition = await restorePosition()
   if (!rendition) return
+  disableEpubJsWindowResize()
   reportLocationNow()
   if (restoredSavedPosition) remindIframeRepaint()
 
