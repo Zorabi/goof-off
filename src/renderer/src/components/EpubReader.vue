@@ -138,7 +138,9 @@ let navigationTimeout = null
 let chapterNavigationSettleTimer = null
 let locationReportTimer = null
 let resizeDebounceTimer = null
+let resizeLocationSuppressionTimer = null
 let resizeGeneration = 0
+let suppressResizeLocationReports = false
 let guardedResizeManager = null
 let guardedResizeHandler = null
 let guardedResizeEmitHandler = null
@@ -239,6 +241,7 @@ function beginChapterNavigation(href, { awaitsLocationConfirmation = false } = {
   }
   currentChapterTarget = target
   pendingChapterTarget = target
+  ctrl.currentChapterHref.value = canonicalHref
   const tocItem = findTocItemByHref(href)
   if (tocItem) {
     ctrl.currentChapterLabel.value = tocItem.label?.trim() || ''
@@ -304,25 +307,113 @@ function adjacentChapterHref(direction) {
 }
 
 function captureResizeViewportAnchor(container) {
-  const view = rendition?.manager?.current?.()
-  const iframe = view?.iframe
-  const document = view?.contents?.document || iframe?.contentDocument
-  if (!iframe?.isConnected || !document?.elementFromPoint) return null
-
+  const manager = rendition?.manager
   const viewportBounds = container.getBoundingClientRect?.()
-  const iframeBounds = iframe.getBoundingClientRect?.()
+  if (!manager || !viewportBounds) return null
+
+  // `manager.current()` is the last visible view, which can be the next chapter
+  // near a section boundary. Anchor the view intersecting the viewport's top.
+  const views = manager.visible?.() || manager.views?.displayed?.() || []
+  const candidates = views
+    .map((view) => ({
+      view,
+      iframe: view?.iframe,
+      bounds: view?.iframe?.getBoundingClientRect?.()
+    }))
+    .filter(({ iframe, bounds }) => iframe?.isConnected && Number.isFinite(bounds?.bottom))
+    .filter(({ bounds }) => bounds.bottom > viewportBounds.top)
+    .sort((left, right) => left.bounds.top - right.bounds.top)
+  const selected =
+    candidates.find(({ bounds }) => bounds.top <= viewportBounds.top) || candidates[0]
+  const iframe = selected?.iframe
+  const document = selected?.view?.contents?.document || iframe?.contentDocument
+  if (!iframe || !document?.elementFromPoint) return null
+
   const maxX = iframe.clientWidth - 1
   const maxY = iframe.clientHeight - 1
-  if (!viewportBounds || !iframeBounds || maxX < 0 || maxY < 0) return null
+  if (maxX < 0 || maxY < 0) return null
 
-  const x = Math.min(maxX, Math.max(0, viewportBounds.left - iframeBounds.left + 1))
-  const y = Math.min(maxY, Math.max(0, viewportBounds.top - iframeBounds.top))
-  const hit = document.elementFromPoint(x, y)
-  const element = hit?.closest?.('p, li, blockquote, h1, h2, h3, h4, h5, h6, pre, table') || hit
-  const elementBounds = element?.getBoundingClientRect?.()
-  if (!element?.isConnected || !Number.isFinite(elementBounds?.top)) return null
+  const viewportTopInFrame = viewportBounds.top - selected.bounds.top
+  const sampleTop = Math.min(maxY, Math.max(0, viewportTopInFrame))
+  const xSamples = [0.5, 0.35, 0.65, 0.2, 0.8].map((ratio) =>
+    Math.min(maxX, Math.max(0, Math.round(maxX * ratio)))
+  )
+  const yOffsets = [0, 4, 8, 12, 18, 24, 32, 42, 54, 68, 84, 104, 128]
 
-  return { iframe, element, inset: y - elementBounds.top }
+  for (const offset of yOffsets) {
+    const y = Math.min(maxY, sampleTop + offset)
+    const textAnchors = []
+    for (const x of xSamples) {
+      let caretRange = null
+      try {
+        caretRange = document.caretRangeFromPoint?.(x, y) || null
+        if (!caretRange && document.caretPositionFromPoint) {
+          const caret = document.caretPositionFromPoint(x, y)
+          if (caret) {
+            caretRange = document.createRange()
+            caretRange.setStart(caret.offsetNode, caret.offset)
+            caretRange.collapse(true)
+          }
+        }
+      } catch {
+        caretRange = null
+      }
+
+      const textNode = caretRange?.startContainer
+      const text = textNode?.nodeType === 3 ? textNode.nodeValue || '' : ''
+      if (!text.trim()) continue
+
+      const start = Math.min(caretRange.startOffset, text.length - 1)
+      let foundAnchor = false
+      for (let distance = 0; distance < Math.min(text.length, 24); distance += 1) {
+        const offsets = distance === 0 ? [start] : [start + distance, start - distance]
+        for (const textOffset of offsets) {
+          if (textOffset < 0 || textOffset >= text.length || /\s/.test(text[textOffset])) continue
+          const codePoint = text.codePointAt(textOffset)
+          const end = Math.min(text.length, textOffset + (codePoint > 0xffff ? 2 : 1))
+          const range = document.createRange()
+          range.setStart(textNode, textOffset)
+          range.setEnd(textNode, end)
+          const bounds = range.getBoundingClientRect?.()
+          if (!Number.isFinite(bounds?.top) || bounds.height <= 0) continue
+          textAnchors.push({ range, bounds })
+          foundAnchor = true
+          break
+        }
+        if (foundAnchor) break
+      }
+    }
+    if (textAnchors.length) {
+      textAnchors.sort(
+        (left, right) =>
+          Math.abs(left.bounds.top - viewportTopInFrame) -
+          Math.abs(right.bounds.top - viewportTopInFrame)
+      )
+      return {
+        iframe,
+        range: textAnchors[0].range,
+        inset: viewportTopInFrame - textAnchors[0].bounds.top
+      }
+    }
+  }
+
+  // Image-only pages may not expose a text range. Keep a meaningful content
+  // element as a fallback, but never treat html/body as the reading anchor.
+  for (const offset of yOffsets) {
+    const y = Math.min(maxY, sampleTop + offset)
+    for (const x of xSamples) {
+      const hit = document.elementFromPoint(x, y)
+      const element = hit?.closest?.(
+        'p, li, blockquote, h1, h2, h3, h4, h5, h6, pre, table, img, figure, svg, canvas, video'
+      )
+      if (!element?.isConnected) continue
+      const bounds = element.getBoundingClientRect?.()
+      if (!Number.isFinite(bounds?.top) || bounds.height <= 0) continue
+      return { iframe, element, inset: viewportTopInFrame - bounds.top }
+    }
+  }
+
+  return null
 }
 
 function captureResizeScrollPosition() {
@@ -340,35 +431,86 @@ function restoreResizeScrollPosition(position) {
   if (!container || !position) return
   const anchor = position.anchor
   let top = position.top
-  if (anchor?.iframe?.isConnected && anchor.element?.isConnected) {
+  if (anchor?.iframe?.isConnected) {
     const viewportBounds = container.getBoundingClientRect?.()
     const iframeBounds = anchor.iframe.getBoundingClientRect?.()
-    const elementBounds = anchor.element.getBoundingClientRect?.()
+    const anchorIsConnected = anchor.range
+      ? anchor.range.startContainer?.isConnected
+      : anchor.element?.isConnected
+    const anchorBounds = anchorIsConnected
+      ? anchor.range?.getBoundingClientRect?.() || anchor.element?.getBoundingClientRect?.()
+      : null
     if (
       Number.isFinite(viewportBounds?.top) &&
       Number.isFinite(iframeBounds?.top) &&
-      Number.isFinite(elementBounds?.top)
+      Number.isFinite(anchorBounds?.top)
     ) {
       top = scrollOffsetForViewportAnchor(
         container.scrollTop,
-        elementBounds.top,
+        anchorBounds.top,
         viewportBounds.top - iframeBounds.top,
         anchor.inset
       )
     }
   }
-  container.scrollLeft = clampScrollOffset(
-    position.left,
-    container.scrollWidth,
-    container.clientWidth
-  )
-  container.scrollTop = clampScrollOffset(top, container.scrollHeight, container.clientHeight)
+  const left = clampScrollOffset(position.left, container.scrollWidth, container.clientWidth)
+  const nextTop = clampScrollOffset(top, container.scrollHeight, container.clientHeight)
+  const manager = rendition?.manager
+  if (manager?.container === container && typeof manager.scrollTo === 'function') {
+    const previousLeft = container.scrollLeft
+    const previousTop = container.scrollTop
+    manager.scrollTo(left, nextTop, true)
+    if (previousLeft === container.scrollLeft && previousTop === container.scrollTop) {
+      manager.ignore = false
+    }
+    return
+  }
+  container.scrollLeft = left
+  container.scrollTop = nextTop
+}
+
+function resizeLayoutSignature(manager) {
+  const views = manager?.views?.displayed?.() || []
+  return views
+    .map((view) => {
+      const iframe = view?.iframe
+      const document = view?.contents?.document || iframe?.contentDocument
+      return [
+        iframe?.clientWidth || 0,
+        iframe?.clientHeight || 0,
+        document?.documentElement?.scrollWidth || 0,
+        document?.documentElement?.scrollHeight || 0,
+        document?.body?.scrollHeight || 0
+      ].join(':')
+    })
+    .join('|')
+}
+
+async function waitForResizeLayoutToSettle(manager, activeRendition, generation) {
+  let previous = ''
+  let stableFrames = 0
+  for (let frame = 0; frame < 12; frame += 1) {
+    await nextAnimationFrame()
+    if (rendition !== activeRendition || generation !== resizeGeneration) return false
+    const signature = resizeLayoutSignature(manager)
+    if (!signature) return true
+    if (signature === previous) {
+      stableFrames += 1
+      if (stableFrames >= 2) return true
+    } else {
+      stableFrames = 0
+    }
+    previous = signature
+  }
+  return true
 }
 
 function reflowManagerWithoutRedisplay(manager, width, height, position) {
   const stageSize = manager?.stage?.size?.(width, height)
   if (!stageSize || !manager?.layout) return
 
+  clearTimeout(locationReportTimer)
+  locationReportTimer = null
   // 后续 `currentLocation()` 会再次调用 stage.size()。把本次实际尺寸写回 Stage，
   // 防止它恢复到旧的百分比设置并对已稳定的 iframe 再次重排。
   if (Number.isFinite(width) && width > 0) manager.stage.settings.width = width
@@ -383,20 +525,24 @@ function reflowManagerWithoutRedisplay(manager, width, height, position) {
   }
   manager.viewSettings.width = manager.layout.width
   manager.viewSettings.height = manager.layout.height
+  suppressResizeLocationReports = true
+  clearTimeout(resizeLocationSuppressionTimer)
   manager.setLayout(manager.layout)
 
   const activeRendition = rendition
   const generation = ++resizeGeneration
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      if (rendition !== activeRendition || generation !== resizeGeneration) return
-      restoreResizeScrollPosition(position)
-      snapToPaginateBoundary()
-      // resize 只应保持当前视口，不应主动生成 relocated。epub.js 的
-      // reportLocation() 会再次 updateLayout()，那次无锚点的重排可能把刚刚
-      // 从目录跳转到的内容重新解释为相邻章节。下一次真实滚动会自然上报位置。
-    })
-  })
+  void (async () => {
+    const settled = await waitForResizeLayoutToSettle(manager, activeRendition, generation)
+    if (!settled || rendition !== activeRendition || generation !== resizeGeneration) return
+    restoreResizeScrollPosition(position)
+    snapToPaginateBoundary()
+    // DOM scrolling emitted by reflow is not a new reading position. epub.js
+    // turns SCROLLED into reportLocation(), which runs updateLayout() again.
+    resizeLocationSuppressionTimer = setTimeout(() => {
+      suppressResizeLocationReports = false
+      resizeLocationSuppressionTimer = null
+    }, 80)
+  })()
 }
 
 function guardEpubJsResize() {
@@ -408,6 +554,7 @@ function guardEpubJsResize() {
       // Rendition 对 manager 的 `resized` 事件会调用 display(旧 CFI)。即使第三方
       // 路径绕过了下方的 resize 覆盖，也不能允许该事件重新触发章节导航。
       if (event === 'resized') return undefined
+      if (event === 'scrolled' && suppressResizeLocationReports) return undefined
       return emit.call(this, event, ...args)
     }
     manager.emit = guardedResizeEmitHandler
@@ -504,6 +651,7 @@ function currentLocationForProgress() {
 
 function reportLocationNow() {
   if (!rendition) return
+  if (suppressResizeLocationReports) return
   if (typeof rendition.reportLocation === 'function') {
     rendition.reportLocation()
     return
@@ -612,7 +760,6 @@ function goToChapter(href) {
         target.layoutAligned = true
         armChapterNavigationSettleTimeout(target)
         settlePendingChapterNavigation(target)
-        reportLocationNow()
         return true
       })
       .catch(() => {
@@ -635,7 +782,15 @@ function snapToPaginateBoundary() {
   if (ctrl.mode.value !== 'paginate') return
   const el = getScrollContainer()
   if (!el || el.clientHeight === 0) return
-  el.scrollTop = Math.round(el.scrollTop / el.clientHeight) * el.clientHeight
+  const top = Math.round(el.scrollTop / el.clientHeight) * el.clientHeight
+  const manager = rendition?.manager
+  if (manager?.container === el && typeof manager.scrollTo === 'function') {
+    const previousTop = el.scrollTop
+    manager.scrollTo(el.scrollLeft, top, true)
+    if (previousTop === el.scrollTop) manager.ignore = false
+    return
+  }
+  el.scrollTop = top
 }
 
 function nextAnimationFrame() {
@@ -650,13 +805,25 @@ function moveChapterTargetToTop(target) {
   const fragmentTarget = tocFragmentTarget(target.href)
   if (!fragmentTarget) {
     const offset = typeof view.offset === 'function' ? view.offset() : { left: 0, top: 0 }
+    const container = getScrollContainer()
+    const previousLeft = container?.scrollLeft
+    const previousTop = container?.scrollTop
     rendition.manager.scrollTo(offset.left || 0, offset.top || 0, true)
+    if (container && previousLeft === container.scrollLeft && previousTop === container.scrollTop) {
+      rendition.manager.ignore = false
+    }
     return true
   }
   try {
     const offset = view.locationOf(fragmentTarget)
     const width = typeof view.width === 'function' ? view.width() : undefined
+    const container = getScrollContainer()
+    const previousLeft = container?.scrollLeft
+    const previousTop = container?.scrollTop
     rendition.manager.moveTo(offset, width)
+    if (container && previousLeft === container.scrollLeft && previousTop === container.scrollTop) {
+      rendition.manager.ignore = false
+    }
     return true
   } catch {
     return false
@@ -1333,14 +1500,21 @@ function remindIframeRepaint() {
 
 function handleRelocated(location) {
   if (!location?.start?.href) return
+  if (suppressResizeLocationReports) return
   const canonicalHref = canonicalChapterHref(location.start.href)
   const pendingTarget = pendingChapterTarget
   const pendingHref = pendingTarget?.canonicalHref
   if (pendingHref && canonicalHref !== pendingHref) return
+  // A location callback can be queued before a menu display has finished. It
+  // describes the old scroll position even when it reaches this handler after
+  // the new section's iframe has been rendered, so it must not update any
+  // chapter state until the target anchor has been aligned.
+  if (pendingTarget?.awaitsLocationConfirmation && !pendingTarget.layoutAligned) return
   // 标题必须与当前已经渲染的 iframe 同步，而不是与历史 relocated 事件同步。
   const renderedHref = canonicalChapterHref(rendition?.manager?.current?.()?.section?.href)
   if (renderedHref && canonicalHref !== renderedHref) return
-  const activeTocItem = currentTocItem(canonicalHref)
+  const activeTocItem =
+    (pendingTarget && findTocItemByHref(pendingTarget.href)) || currentTocItem(canonicalHref)
   // 同一 XHTML 内的目录项共享章节路径，菜单点击前排队的旧 relocated 事件也会
   // 命中该路径。只有目标锚点已经完成两帧对齐后，才允许它确认本次导航。
   if (canConfirmChapterNavigationLocation(pendingTarget)) {
@@ -1492,6 +1666,9 @@ onMounted(async () => {
     clearChapterTextNodeIndexCache()
     clearTimeout(chapterNavigationSettleTimer)
     clearTimeout(resizeDebounceTimer)
+    clearTimeout(resizeLocationSuppressionTimer)
+    resizeLocationSuppressionTimer = null
+    suppressResizeLocationReports = false
     resizeGeneration += 1
     guardedResizeManager = null
     guardedResizeHandler = null
@@ -1552,6 +1729,9 @@ onUnmounted(() => {
   clearTimeout(chapterNavigationSettleTimer)
   clearTimeout(locationReportTimer)
   clearTimeout(resizeDebounceTimer)
+  clearTimeout(resizeLocationSuppressionTimer)
+  resizeLocationSuppressionTimer = null
+  suppressResizeLocationReports = false
   resizeGeneration += 1
   guardedResizeManager = null
   guardedResizeHandler = null
