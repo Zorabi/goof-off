@@ -100,6 +100,7 @@ onMounted(() => {
       :class="{ active: isActive(node), disabled: isDisabledNode(node) }"
       :style="{ '--toc-depth': node.depth }"
       :title="node.label"
+      :aria-label="node.label"
       :data-toc-item="node.id"
       :disabled="isDisabledNode(node)"
       type="button"
@@ -142,7 +143,7 @@ onMounted(() => {
   display: flex;
   width: 100%;
   min-height: 28px;
-  align-items: center;
+  align-items: flex-start;
   padding-top: var(--space-xxs);
   padding-right: var(--space-sm);
   padding-bottom: var(--space-xxs);
@@ -179,8 +180,10 @@ onMounted(() => {
 }
 .toc-arrow {
   display: inline-flex;
+  align-self: flex-start;
   align-items: center;
   justify-content: center;
+  margin-top: 1px;
   transition: transform var(--motion-micro) ease;
 }
 .toc-arrow.expanded {
@@ -189,10 +192,10 @@ onMounted(() => {
 .toc-label {
   min-width: 0;
   flex: 1;
-  overflow: hidden;
+  overflow-wrap: anywhere;
   font-size: var(--text-list-size);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  white-space: normal;
 }
 @media (prefers-reduced-motion: reduce) {
   .toc-arrow {
