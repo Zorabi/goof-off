@@ -26,6 +26,11 @@ import {
   createEpubImageLayoutSettler,
   syncEpubImageVisibility
 } from '../composables/epubImageVisibility.js'
+import {
+  canConfirmChapterNavigationLocation,
+  hrefForChapterRelocation,
+  isChapterNavigationSettled
+} from './epubChapterNavigationHelpers.js'
 import { findActiveTocItemByViewport } from './epubTocHelpers.js'
 import { clampScrollOffset, scrollOffsetForViewportAnchor } from './epubResizeHelpers.js'
 
@@ -130,6 +135,7 @@ const HIDDEN_SCROLLBAR_CLASS = 'goof-off-epub-scrollbar-hidden'
 
 let saveDebounceTimer = null
 let navigationTimeout = null
+let chapterNavigationSettleTimer = null
 let locationReportTimer = null
 let resizeDebounceTimer = null
 let resizeGeneration = 0
@@ -141,6 +147,7 @@ let lastViewportSize = null
 let lastAppliedViewportSize = null
 let currentChapterTarget = null
 let pendingChapterTarget = null
+let deferredViewportSize = null
 let chapterTextNodeIndexCache = null
 let chapterTextNodeIndexGeneration = 0
 
@@ -218,13 +225,17 @@ function sectionForCanonicalHref(canonicalSectionHref) {
   )
 }
 
-function beginChapterNavigation(href) {
+function beginChapterNavigation(href, { awaitsLocationConfirmation = false } = {}) {
   const canonicalHref = canonicalChapterHref(href)
   if (!canonicalHref) return null
+  clearTimeout(chapterNavigationSettleTimer)
   const target = {
     href,
     canonicalHref,
-    previous: currentChapterTarget
+    previous: currentChapterTarget,
+    awaitsLocationConfirmation,
+    layoutAligned: !awaitsLocationConfirmation,
+    locationConfirmed: !awaitsLocationConfirmation
   }
   currentChapterTarget = target
   pendingChapterTarget = target
@@ -238,8 +249,48 @@ function beginChapterNavigation(href) {
 
 function clearPendingChapterNavigation(target) {
   if (pendingChapterTarget !== target) return
+  clearTimeout(chapterNavigationSettleTimer)
   pendingChapterTarget = null
   if (currentChapterTarget === target) currentChapterTarget = target?.previous || null
+  flushDeferredViewportResize()
+}
+
+function settlePendingChapterNavigation(target, { force = false } = {}) {
+  if (!target?.awaitsLocationConfirmation || pendingChapterTarget !== target) return false
+  if (!force && !isChapterNavigationSettled(target)) return false
+
+  clearTimeout(chapterNavigationSettleTimer)
+  pendingChapterTarget = null
+  if (target?.awaitsLocationConfirmation) ctrl.isNavigating.value = false
+  flushDeferredViewportResize()
+  return true
+}
+
+function armChapterNavigationSettleTimeout(target) {
+  clearTimeout(chapterNavigationSettleTimer)
+  chapterNavigationSettleTimer = setTimeout(() => {
+    // `display()` 已完成且目标锚点已经对齐；少数不触发 relocated 的 EPUB 仍需
+    // 恢复重排能力，但绝不能在旧章节回调到来前提前解除保护。
+    settlePendingChapterNavigation(target, { force: true })
+  }, 900)
+}
+
+function deferViewportResize(size) {
+  deferredViewportSize = size
+}
+
+function flushDeferredViewportResize() {
+  const size = deferredViewportSize
+  deferredViewportSize = null
+  if (!size) return
+  requestAnimationFrame(() => {
+    if (!rendition) return
+    if (pendingChapterTarget?.awaitsLocationConfirmation) {
+      deferViewportResize(size)
+      return
+    }
+    applyViewportResize(size)
+  })
 }
 
 function adjacentChapterHref(direction) {
@@ -318,6 +369,10 @@ function reflowManagerWithoutRedisplay(manager, width, height, position) {
   const stageSize = manager?.stage?.size?.(width, height)
   if (!stageSize || !manager?.layout) return
 
+  // 后续 `currentLocation()` 会再次调用 stage.size()。把本次实际尺寸写回 Stage，
+  // 防止它恢复到旧的百分比设置并对已稳定的 iframe 再次重排。
+  if (Number.isFinite(width) && width > 0) manager.stage.settings.width = width
+  if (Number.isFinite(height) && height > 0) manager.stage.settings.height = height
   manager._stageSize = stageSize
   manager._bounds = manager.bounds?.()
   if (manager.isPaginated) {
@@ -337,7 +392,9 @@ function reflowManagerWithoutRedisplay(manager, width, height, position) {
       if (rendition !== activeRendition || generation !== resizeGeneration) return
       restoreResizeScrollPosition(position)
       snapToPaginateBoundary()
-      scheduleLocationReport(0)
+      // resize 只应保持当前视口，不应主动生成 relocated。epub.js 的
+      // reportLocation() 会再次 updateLayout()，那次无锚点的重排可能把刚刚
+      // 从目录跳转到的内容重新解释为相邻章节。下一次真实滚动会自然上报位置。
     })
   })
 }
@@ -360,6 +417,9 @@ function guardEpubJsResize() {
   guardedResizeHandler = (width, height) => {
     // epub.js 默认 resize 会 clear() 后再 display(旧 CFI)。resize 必须只重排
     // 已经挂载的 iframe；不能从已改变的几何关系反推 CFI，更不能触发章节导航。
+    // 目录跳转尚未收到目标 location 时，当前 iframe 可能仍是上一章；此时只能
+    // 等待本组件的 ResizeObserver 在导航落定后重排，不能碰旧视图。
+    if (pendingChapterTarget?.awaitsLocationConfirmation) return
     reflowManagerWithoutRedisplay(manager, width, height, captureResizeScrollPosition())
   }
   manager.resize = guardedResizeHandler
@@ -542,22 +602,26 @@ function navigateChapter(direction) {
 
 function goToChapter(href) {
   if (!rendition?.display) return false
-  const target = beginChapterNavigation(href)
+  const target = beginChapterNavigation(href, { awaitsLocationConfirmation: true })
   ctrl.isNavigating.value = true
   try {
     Promise.resolve(rendition.display(href))
       .then(async () => {
         await alignChapterTargetToTop(target)
-        if (pendingChapterTarget === target) pendingChapterTarget = null
+        if (pendingChapterTarget !== target) return false
+        target.layoutAligned = true
+        armChapterNavigationSettleTimeout(target)
+        settlePendingChapterNavigation(target)
         reportLocationNow()
         return true
       })
       .catch(() => {
         clearPendingChapterNavigation(target)
+        ctrl.isNavigating.value = false
         return false
       })
       .finally(() => {
-        ctrl.isNavigating.value = false
+        if (pendingChapterTarget !== target) ctrl.isNavigating.value = false
       })
   } catch {
     clearPendingChapterNavigation(target)
@@ -1270,14 +1334,28 @@ function remindIframeRepaint() {
 function handleRelocated(location) {
   if (!location?.start?.href) return
   const canonicalHref = canonicalChapterHref(location.start.href)
-  const pendingHref = pendingChapterTarget?.canonicalHref
+  const pendingTarget = pendingChapterTarget
+  const pendingHref = pendingTarget?.canonicalHref
   if (pendingHref && canonicalHref !== pendingHref) return
   // 标题必须与当前已经渲染的 iframe 同步，而不是与历史 relocated 事件同步。
   const renderedHref = canonicalChapterHref(rendition?.manager?.current?.()?.section?.href)
   if (renderedHref && canonicalHref !== renderedHref) return
   const activeTocItem = currentTocItem(canonicalHref)
-  if (!pendingChapterTarget) {
-    currentChapterTarget = { href: location.start.href, canonicalHref, previous: null }
+  // 同一 XHTML 内的目录项共享章节路径，菜单点击前排队的旧 relocated 事件也会
+  // 命中该路径。只有目标锚点已经完成两帧对齐后，才允许它确认本次导航。
+  if (canConfirmChapterNavigationLocation(pendingTarget)) {
+    pendingTarget.locationConfirmed = true
+  } else if (!pendingTarget) {
+    currentChapterTarget = {
+      href: hrefForChapterRelocation({
+        activeTocItem,
+        currentChapterTarget,
+        canonicalHref,
+        locationHref: location.start.href
+      }),
+      canonicalHref,
+      previous: null
+    }
   }
   lastKnownLocation = location
   const spineIndex = spineIndexFromLocation(location)
@@ -1308,6 +1386,9 @@ function handleRelocated(location) {
   })
   updateProgressFromLocation(location)
   scheduleSave()
+  if (pendingTarget?.awaitsLocationConfirmation) {
+    settlePendingChapterNavigation(pendingTarget)
+  }
 }
 
 function observedViewportSize(entry) {
@@ -1337,6 +1418,10 @@ function handleViewportResize(entries) {
 
 function applyViewportResize(size) {
   if (!rendition) return
+  if (pendingChapterTarget?.awaitsLocationConfirmation) {
+    deferViewportResize(size)
+    return
+  }
   if (
     lastAppliedViewportSize?.width === size.width &&
     lastAppliedViewportSize?.height === size.height
@@ -1405,6 +1490,7 @@ onMounted(async () => {
     clearFileDragContentListeners()
     clearContentPointerListeners()
     clearChapterTextNodeIndexCache()
+    clearTimeout(chapterNavigationSettleTimer)
     clearTimeout(resizeDebounceTimer)
     resizeGeneration += 1
     guardedResizeManager = null
@@ -1412,6 +1498,7 @@ onMounted(async () => {
     guardedResizeEmitHandler = null
     currentChapterTarget = null
     pendingChapterTarget = null
+    deferredViewportSize = null
     ctrl.currentTocHref.value = ''
     ctrl.resetSearchAnchor()
     if (rendition) {
@@ -1462,6 +1549,7 @@ onUnmounted(() => {
   window.removeEventListener('epub:toggle-auto-turn', handleToggleAutoTurn)
   ctrl.unregister()
   clearTimeout(navigationTimeout)
+  clearTimeout(chapterNavigationSettleTimer)
   clearTimeout(locationReportTimer)
   clearTimeout(resizeDebounceTimer)
   resizeGeneration += 1
@@ -1484,6 +1572,7 @@ onUnmounted(() => {
   clearChapterTextNodeIndexCache()
   currentChapterTarget = null
   pendingChapterTarget = null
+  deferredViewportSize = null
   ctrl.currentTocHref.value = ''
   ctrl.resetSearchAnchor()
   if (rendition) {
