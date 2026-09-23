@@ -107,6 +107,7 @@ watch(
           type="button"
           class="toc-main"
           :title="node.title"
+          :aria-label="node.title"
           :aria-current="currentChapterId === node.id ? 'location' : undefined"
           @click="onJump(node)"
           @keydown.enter.prevent.stop="onJump(node)"
@@ -157,7 +158,7 @@ watch(
   display: flex;
   width: 100%;
   min-height: 28px;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-xxs);
   padding: var(--space-xxs) var(--space-sm);
   padding-left: calc(var(--space-lg) + var(--toc-depth) * var(--space-xl));
@@ -214,7 +215,7 @@ watch(
   display: inline-flex;
   min-width: 0;
   flex: 1;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-xs);
   padding: 0;
   border: none;
@@ -228,21 +229,24 @@ watch(
 .toc-title {
   min-width: 0;
   flex: 1;
-  overflow: hidden;
+  overflow-wrap: anywhere;
   color: var(--color-text-primary);
   font-size: var(--text-list-size);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  white-space: normal;
 }
 
 .toc-percent {
+  align-self: flex-start;
   flex: 0 0 auto;
+  margin-top: 2px;
   color: var(--color-text-secondary);
   font-size: var(--text-readout-size);
   font-variant-numeric: var(--text-readout-variant);
 }
 
 .toc-remove {
+  align-self: flex-start;
   flex: 0 0 auto;
   margin-left: var(--space-xxs);
   opacity: 0;
