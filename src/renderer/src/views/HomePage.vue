@@ -51,6 +51,7 @@ const dialogOpen = ref(false)
 const editing = ref(null) // null = 新增；object = 编辑该站点
 const submitError = ref('')
 const dialogFocusTarget = ref(null)
+const openingFile = ref(false)
 
 onMounted(refresh)
 
@@ -78,12 +79,20 @@ function reportUrlValidationFailure(source, payload, error) {
   })
 }
 
-function openLocalFile() {
+async function openLocalFile() {
   if (!fileCoordinator?.openAnyFileFromDialog) {
     pushStatus('文件不可用')
     return
   }
-  fileCoordinator.openAnyFileFromDialog()
+  if (openingFile.value) return
+  openingFile.value = true
+  try {
+    await fileCoordinator.openAnyFileFromDialog()
+  } catch (error) {
+    pushStatus(error?.message || '打开文件失败')
+  } finally {
+    openingFile.value = false
+  }
 }
 
 function rememberDialogFocusTarget(target) {
@@ -201,8 +210,14 @@ async function onRemove(site) {
       <div data-test="file-drop-stage" class="file-drop-stage">
         <div class="drag-hint">
           拖入文件，或
-          <button data-test="open-local-file" class="open-local-link" @click="openLocalFile">
-            点此打开
+          <button
+            data-test="open-local-file"
+            class="open-local-link"
+            :disabled="openingFile"
+            :aria-busy="openingFile"
+            @click="openLocalFile"
+          >
+            {{ openingFile ? '打开中…' : '点此打开' }}
           </button>
         </div>
       </div>

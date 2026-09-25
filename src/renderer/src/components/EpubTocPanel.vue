@@ -7,7 +7,7 @@ import Icon from './icons/Icon.vue'
 
 const { toc, book } = injectEpub()
 const ctrl = injectEpubCtrl()
-const { showToc, currentChapterHref, guardedGoToChapter } = ctrl
+const { showToc, currentChapterHref, currentTocHref, guardedGoToChapter } = ctrl
 
 const expandedNodes = ref(new Set())
 const bodyRef = ref(null)
@@ -25,8 +25,8 @@ const flatNodes = computed(() => flattenToc(toc.value, expandedNodes.value))
 
 function isActive(node) {
   if (!currentChapterHref.value || !node.href) return false
-  const a = canonical(node.href).split('#')[0]
-  const b = currentChapterHref.value.split('#')[0]
+  const a = canonical(node.href)
+  const b = currentTocHref.value || currentChapterHref.value
   return a === b
 }
 
@@ -65,7 +65,11 @@ function expandToActive() {
     expandedNodes.value = new Set()
     return
   }
-  const activeId = findActiveNode(toc.value, currentChapterHref.value, canonical)
+  const activeId = findActiveNode(
+    toc.value,
+    currentTocHref.value || currentChapterHref.value,
+    canonical
+  )
   const parents = activeId ? getParentChain(toc.value, activeId) : []
   expandedNodes.value = new Set(parents)
 }

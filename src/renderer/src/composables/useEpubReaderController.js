@@ -10,6 +10,7 @@ export function createEpubReaderController() {
   const mode = ref('scroll')
   const currentChapterLabel = ref('')
   const currentChapterHref = ref('')
+  const currentTocHref = ref('')
   const isNavigating = ref(false)
   const autoTurnRunning = ref(false)
   const autoTurnPaused = ref(false)
@@ -199,6 +200,7 @@ export function createEpubReaderController() {
     mode,
     currentChapterLabel,
     currentChapterHref,
+    currentTocHref,
     isNavigating,
     autoTurnRunning,
     autoTurnPaused,

@@ -26,6 +26,7 @@ import {
   createEpubImageLayoutSettler,
   syncEpubImageVisibility
 } from '../composables/epubImageVisibility.js'
+import { findActiveTocItemByViewport } from './epubTocHelpers.js'
 
 const props = defineProps({
   fileVisualState: { type: Object, default: null },
@@ -319,21 +320,51 @@ function snapToPaginateBoundary() {
   el.scrollTop = Math.round(el.scrollTop / el.clientHeight) * el.clientHeight
 }
 
-function matchTocChapter(href) {
-  if (!epub.book.value || !epub.toc.value.length) return ''
-  const canonical = epub.book.value.canonical(href).split('#')[0]
-  function findInToc(items) {
-    for (const item of items) {
-      const itemHref = epub.book.value.canonical(item.href).split('#')[0]
-      if (itemHref === canonical) return item.label
-      if (item.subitems?.length) {
-        const found = findInToc(item.subitems)
-        if (found) return found
-      }
-    }
-    return ''
+function tocFragmentTarget(href) {
+  const hashIndex = href.indexOf('#')
+  if (hashIndex < 0) return ''
+  const fragment = href.slice(hashIndex + 1)
+  try {
+    return decodeURIComponent(fragment)
+  } catch {
+    return fragment
   }
-  return findInToc(epub.toc.value)
+}
+
+// Canonicalize once per book/TOC, rather than walking the whole book on every scroll.
+const tocBySection = computed(() => {
+  const sections = new Map()
+  if (!epub.book.value) return sections
+  function visit(items) {
+    for (const item of items) {
+      if (item.href) {
+        const href = epub.book.value.canonical(item.href)
+        const sectionHref = href.split('#')[0]
+        if (!sections.has(sectionHref)) sections.set(sectionHref, [])
+        sections.get(sectionHref).push({ item, href, fragment: tocFragmentTarget(href) })
+      }
+      if (item.subitems?.length) visit(item.subitems)
+    }
+  }
+  visit(epub.toc.value)
+  return sections
+})
+
+function currentTocItem(canonicalHref, location) {
+  const items = tocBySection.value.get(canonicalHref) || []
+  if (items.length <= 1) return items[0] || null
+
+  const section = getSectionForCfi(location.start.cfi)
+  const view = section ? visibleViewForSection(section) : null
+  if (!view) return items[0]
+  const viewportTop = getScrollContainer().getBoundingClientRect().top
+  const viewTop = view.iframe.getBoundingClientRect().top
+
+  return findActiveTocItemByViewport(items, viewportTop, ({ fragment }) => {
+    if (!fragment) return viewTop
+    const target = view.contents.document.getElementById(fragment)
+    return target ? viewTop + target.getBoundingClientRect().top : null
+  })
 }
 
 function clearChapterTextNodeIndexCache() {
@@ -962,12 +993,14 @@ function remindIframeRepaint() {
 function handleRelocated(location) {
   if (!location?.start?.href) return
   lastKnownLocation = location
-  const chapterLabel = matchTocChapter(location.start.href)
   const canonicalHref = epub.book.value.canonical(location.start.href).split('#')[0]
+  const activeTocItem = currentTocItem(canonicalHref, location)
+  const chapterLabel = activeTocItem?.item.label?.trim() || ''
   const spineIndex = spineIndexFromLocation(location)
   const fileId = epub.fileId.value || ''
   ctrl.currentChapterLabel.value = chapterLabel
   ctrl.currentChapterHref.value = canonicalHref
+  ctrl.currentTocHref.value = activeTocItem?.href || ''
   ctrl.updateSearchAnchor({
     fileId,
     spineIndex,
@@ -1065,6 +1098,7 @@ onMounted(async () => {
     clearContentPointerListeners()
     clearChapterTextNodeIndexCache()
     ctrl.resetSearchAnchor()
+    ctrl.currentTocHref.value = ''
     if (rendition) {
       rendition.destroy()
       rendition = null
@@ -1127,6 +1161,7 @@ onUnmounted(() => {
   imageVisibilityHookRegistered = false
   clearChapterTextNodeIndexCache()
   ctrl.resetSearchAnchor()
+  ctrl.currentTocHref.value = ''
   if (rendition) {
     rendition.destroy()
     rendition = null

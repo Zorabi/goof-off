@@ -26,6 +26,22 @@ export function createFileOpenCoordinator({
   stopAutoTurn,
   pushStatus
 }) {
+  let pendingDialogOpen = null
+
+  function withDialogOpenLock(task) {
+    if (pendingDialogOpen) return pendingDialogOpen
+    // Start the async task immediately to preserve click order with history/drop requests.
+    const tracked = task().finally(() => {
+      pendingDialogOpen = null
+    })
+    // Menu/shortcut listeners intentionally fire and forget. Observe a rejection
+    // here so a failed native dialog does not become an unhandled rejection while
+    // callers that await the returned promise still receive the original error.
+    tracked.catch(() => {})
+    pendingDialogOpen = tracked
+    return tracked
+  }
+
   async function flushBeforeOpen() {
     try {
       await flushActiveReader()
@@ -296,47 +312,52 @@ export function createFileOpenCoordinator({
     }
   }
 
-  async function openFileFromDialog(kind, openDialog) {
-    const requestId = beginOpenRequest('file')
-    const source = 'dialog'
-    logOpenRequest(source, kind)
-    try {
-      if (!(await flushBeforeOpen())) return
-      if (!isCurrentOpenRequest(requestId)) return
-      const result = await openDialog()
-      const finalResult = (await handleOpenResult(kind, result, requestId, source)) || result
-      logOpenResult(source, kind, finalResult)
-    } finally {
-      clearOpenRequest(requestId)
-    }
+  function openFileFromDialog(kind, openDialog) {
+    return withDialogOpenLock(async () => {
+      const requestId = beginOpenRequest('file')
+      const source = 'dialog'
+      logOpenRequest(source, kind)
+      try {
+        if (!(await flushBeforeOpen())) return
+        if (!isCurrentOpenRequest(requestId)) return
+        const result = await openDialog()
+        const finalResult = (await handleOpenResult(kind, result, requestId, source)) || result
+        logOpenResult(source, kind, finalResult)
+        return finalResult
+      } finally {
+        clearOpenRequest(requestId)
+      }
+    })
   }
 
-  async function openAnyFileFromDialog() {
-    const requestId = beginOpenRequest('file')
-    const source = 'dialog'
-    logOpenRequest(source, 'any')
-    try {
-      if (!(await flushBeforeOpen())) return
-      if (!isCurrentOpenRequest(requestId)) return
-      const result = await api.openAnyFileDialog()
-      const kind = result?.kind
-      if (!isCurrentOpenRequest(requestId)) {
-        await cleanupStaleResult(kind, result)
-        return undefined
-      }
-      if (!kind) {
-        if (result?.reason !== 'cancelled' && result?.reason !== 'stale') {
-          pushStatus(result?.message || '文件不可用')
+  function openAnyFileFromDialog() {
+    return withDialogOpenLock(async () => {
+      const requestId = beginOpenRequest('file')
+      const source = 'dialog'
+      logOpenRequest(source, 'any')
+      try {
+        if (!(await flushBeforeOpen())) return
+        if (!isCurrentOpenRequest(requestId)) return
+        const result = await api.openAnyFileDialog()
+        const kind = result?.kind
+        if (!isCurrentOpenRequest(requestId)) {
+          await cleanupStaleResult(kind, result)
+          return undefined
         }
-        logOpenResult(source, 'unknown', result)
-        return result
+        if (!kind) {
+          if (result?.reason !== 'cancelled' && result?.reason !== 'stale') {
+            pushStatus(result?.message || '文件不可用')
+          }
+          logOpenResult(source, 'unknown', result)
+          return result
+        }
+        const finalResult = (await handleOpenResult(kind, result, requestId, source)) || result
+        logOpenResult(source, kind, finalResult)
+        return finalResult
+      } finally {
+        clearOpenRequest(requestId)
       }
-      const finalResult = (await handleOpenResult(kind, result, requestId, source)) || result
-      logOpenResult(source, kind, finalResult)
-      return finalResult
-    } finally {
-      clearOpenRequest(requestId)
-    }
+    })
   }
 
   async function openDroppedDecision(decision, openDroppedFile) {
