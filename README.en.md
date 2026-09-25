@@ -11,7 +11,7 @@
 Goof Off combines TXT, EPUB, and PDF reading with web browsing, plus background transparency, auto-hide, mouse click-through, and global boss keys.
 
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
-![Platform](https://img.shields.io/badge/platform-macOS%20Apple%20Silicon%20%7C%20Windows%2011%20x64-lightgrey)
+![Platform](https://img.shields.io/badge/platform-macOS%20Apple%20Silicon%20%2F%20Intel%20%7C%20Windows%2011%20x64-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-42-47848F?logo=electron&logoColor=white)
 ![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white)
 
@@ -36,11 +36,14 @@ Goof Off combines TXT, EPUB, and PDF reading with web browsing, plus background 
 
 Download the latest release from [Releases](https://github.com/triWater-Chen/goof-off/releases):
 
-| Platform            | File                                                 | Description                                     |
-| ------------------- | ---------------------------------------------------- | ----------------------------------------------- |
-| Windows 11 x64      | `Goof-Off-x.x.x-Setup.exe`                           | Installer; lets you choose the install location |
-| Windows 11 x64      | `Goof-Off-x.x.x-Portable.zip`                        | Extract fully, then run the executable in place |
-| macOS Apple Silicon | `Goof-Off-x.x.x-mac.dmg` or `Goof-Off-x.x.x-mac.zip` | For Macs with Apple silicon (M-series)          |
+| Platform            | File                                                             | Description                                     |
+| ------------------- | ---------------------------------------------------------------- | ----------------------------------------------- |
+| Windows 11 x64      | `Goof-Off-x.x.x-Setup.exe`                                       | Installer; lets you choose the install location |
+| Windows 11 x64      | `Goof-Off-x.x.x-Portable.zip`                                    | Extract fully, then run the executable in place |
+| macOS Apple Silicon | `Goof-Off-x.x.x-mac-arm64.dmg` or `Goof-Off-x.x.x-mac-arm64.zip` | For Macs with Apple silicon (M-series)          |
+| macOS Intel         | `Goof-Off-x.x.x-mac-x64.dmg` or `Goof-Off-x.x.x-mac-x64.zip`     | For Intel Macs; not verified on real hardware   |
+
+> The macOS Intel (x64) installers are produced by architecture-specific packaging but have not been verified on real Intel hardware, so they are considered theoretically viable only. Please evaluate before use and report any issue you encounter.
 
 > Current release packages are not signed with a trusted developer certificate, so your system may display a security warning. On Windows, choose “More info → Run anyway” if SmartScreen appears. On macOS, if the developer cannot be verified, right-click the app in Finder and choose “Open.” Download the app only from this repository's Releases page.
 
@@ -221,7 +224,7 @@ Goof Off targets long-form, text-first reading. Both behaviors are deliberate tr
 <details>
 <summary><strong>Does Goof Off support Intel Macs, Windows 10, or Linux?</strong></summary>
 
-Goof Off officially supports Macs with Apple silicon (M-series) and Windows 11 x64. Intel Macs, Windows 10, Windows ARM64, and Linux are not currently guaranteed to work.
+Goof Off officially supports Macs with Apple silicon (M-series) or Intel chips, and Windows 11 x64. On a Mac, check “About This Mac” to see which chip you have. The Intel (x64) builds have not been verified on real Intel hardware and are considered theoretically viable only. Windows 10, Windows ARM64, and Linux are not currently guaranteed to work.
 
 </details>
 

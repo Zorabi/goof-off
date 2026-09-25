@@ -11,7 +11,7 @@
 集成 TXT、EPUB、PDF 阅读与网页浏览，支持背景透明、自动隐藏、鼠标穿透和全局老板键。
 
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
-![Platform](https://img.shields.io/badge/platform-macOS%20Apple%20Silicon%20%7C%20Windows%2011%20x64-lightgrey)
+![Platform](https://img.shields.io/badge/platform-macOS%20Apple%20Silicon%20%2F%20Intel%20%7C%20Windows%2011%20x64-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-42-47848F?logo=electron&logoColor=white)
 ![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white)
 
@@ -36,11 +36,14 @@
 
 前往 [Releases](https://github.com/triWater-Chen/goof-off/releases) 下载最新版本：
 
-| 平台                | 下载文件                                             | 说明                           |
-| ------------------- | ---------------------------------------------------- | ------------------------------ |
-| Windows 11 x64      | `Goof-Off-x.x.x-Setup.exe`                           | 安装版，可选择安装目录         |
-| Windows 11 x64      | `Goof-Off-x.x.x-Portable.zip`                        | 完整解压后直接运行目录内 exe   |
-| macOS Apple Silicon | `Goof-Off-x.x.x-mac.dmg` 或 `Goof-Off-x.x.x-mac.zip` | 适用于 Apple 芯片（M 系列）Mac |
+| 平台                | 下载文件                                                         | 说明                              |
+| ------------------- | ---------------------------------------------------------------- | --------------------------------- |
+| Windows 11 x64      | `Goof-Off-x.x.x-Setup.exe`                                       | 安装版，可选择安装目录            |
+| Windows 11 x64      | `Goof-Off-x.x.x-Portable.zip`                                    | 完整解压后直接运行目录内 exe      |
+| macOS Apple Silicon | `Goof-Off-x.x.x-mac-arm64.dmg` 或 `Goof-Off-x.x.x-mac-arm64.zip` | 适用于 Apple 芯片（M 系列）Mac    |
+| macOS Intel         | `Goof-Off-x.x.x-mac-x64.dmg` 或 `Goof-Off-x.x.x-mac-x64.zip`     | 适用于 Intel 芯片 Mac，未实机验收 |
+
+> macOS Intel（x64）安装包按分架构打包产出，尚未在 Intel 实机验收，仅理论可行，请自行评估后取用；如遇异常请在 Issue 中反馈。
 
 > 当前发布包尚未配置受信任的开发者签名，因此系统可能显示安全提示。Windows 出现 SmartScreen 时，请选择「更多信息 → 仍要运行」；macOS 提示无法验证开发者时，请在 Finder 中右键应用并选择「打开」。请仅从本仓库的 Releases 页面下载。
 
@@ -221,7 +224,7 @@ Goof Off 在 macOS 和 Windows 11 上都使用无边框窗口。请按住下列�
 <details>
 <summary><strong>支持 Intel Mac、Windows 10 或 Linux 吗？</strong></summary>
 
-当前正式支持搭载 Apple 芯片（M 系列）的 Mac 和 Windows 11 x64。Intel Mac、Windows 10、Windows ARM64 和 Linux 暂不保证可用。
+当前正式支持搭载 Apple 芯片（M 系列）与 Intel 芯片的 Mac，以及 Windows 11 x64；在 macOS「关于本机」中可查看芯片型号。Intel（x64）安装包尚未在 Intel 实机验收，仅理论可行。Windows 10、Windows ARM64 和 Linux 暂不保证可用。
 
 </details>
 

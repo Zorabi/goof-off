@@ -1,5 +1,5 @@
 # 自动发布：推送 v* 格式的 tag（如 v1.1.0）时触发。
-# 在 Windows / macOS 上分别打包，然后把安装包上传到该 tag 对应的 GitHub Release。
+# 在 Windows 与 macOS（Apple Silicon / Intel）上分别打包，然后把安装包上传到该 tag 对应的 GitHub Release。
 # 无需配置任何 secret——GITHUB_TOKEN 由 Actions 自动注入。
 name: Release
 
@@ -18,12 +18,20 @@ jobs:
       matrix:
         include:
           - os: windows-latest
+            artifact: dist-windows-x64
             script: build:win
             files: |
               dist/*.exe
               dist/*.zip
           - os: macos-latest
+            artifact: dist-mac-arm64
             script: build:mac
+            files: |
+              dist/*.dmg
+              dist/*.zip
+          - os: macos-latest
+            artifact: dist-mac-x64
+            script: build:mac:x64
             files: |
               dist/*.dmg
               dist/*.zip
@@ -52,7 +60,7 @@ jobs:
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: dist-${{ matrix.os }}
+          name: ${{ matrix.artifact }}
           path: ${{ matrix.files }}
           if-no-files-found: error
 

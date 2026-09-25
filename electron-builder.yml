@@ -34,7 +34,7 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
-  artifactName: Goof-Off-${version}-mac.${ext}
+  artifactName: Goof-Off-${version}-mac-${arch}.${ext}
   category: public.app-category.utilities
   identity: '-'
   entitlements: build/entitlements.mac.plist
@@ -46,7 +46,7 @@ mac:
     NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
   notarize: false
 dmg:
-  artifactName: Goof-Off-${version}-mac.${ext}
+  artifactName: Goof-Off-${version}-mac-${arch}.${ext}
 linux:
   target:
     - AppImage
