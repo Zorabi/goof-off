@@ -187,6 +187,7 @@ async function onRemove(site) {
             :data-site-id="site.id"
             :class="{ 'is-drag-source': drag.draggingId.value === site.id }"
             :name="site.name"
+            :icon="site.icon"
             :removable="site.source === 'custom' || site.source === 'preset'"
             :lock-owner-id="`content.site-card-menu:${site.source}:${site.id}`"
             @click="emit('open-site', site.url)"

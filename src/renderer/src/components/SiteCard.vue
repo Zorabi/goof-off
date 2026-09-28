@@ -1,10 +1,11 @@
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { injectChromeLockRegistry } from '../composables/useChromeLockRegistry.js'
 import { computeSiteMenuPosition } from '../composables/siteMenuPosition.js'
 
 const props = defineProps({
   name: { type: String, required: true },
+  icon: { type: String, default: '' },
   removable: { type: Boolean, default: false },
   lockOwnerId: { type: String, default: '' }
 })
@@ -19,6 +20,8 @@ const confirmDeleteRef = ref(null)
 const menuRef = ref(null)
 const menuStyle = ref({})
 const menuPlacement = ref('below')
+
+const displayIcon = computed(() => Array.from(String(props.icon || props.name).trim())[0] || '')
 
 const ownerId = () => props.lockOwnerId || `content.site-card-menu:${props.name}`
 
@@ -139,6 +142,7 @@ onBeforeUnmount(() => {
 <template>
   <div ref="wrapperRef" class="site-card-wrap" @focusout="onFocusout">
     <button ref="tileRef" class="site-card" @click="$emit('click')" @contextmenu="onContextMenu">
+      <span v-if="displayIcon" class="site-icon" aria-hidden="true">{{ displayIcon }}</span>
       <span class="name">{{ name }}</span>
     </button>
     <Teleport to="body">
@@ -181,11 +185,13 @@ onBeforeUnmount(() => {
   font-size: 11px;
   line-height: 1.2;
   text-align: center;
-  padding: 0 4px;
+  padding: 3px 4px;
   cursor: pointer;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 2px;
   transition: background var(--motion-micro) ease;
   user-select: none;
   overflow: hidden;
@@ -201,15 +207,31 @@ onBeforeUnmount(() => {
 
 .name {
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   white-space: normal;
-  line-height: 1.2;
-  font-size: 11px;
+  line-height: 12px;
+  font-size: 10px;
   color: inherit;
   text-align: center;
+}
+
+.site-icon {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  background: var(--color-active-icon-bg);
+  color: var(--color-active-icon);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
 }
 
 .menu {
