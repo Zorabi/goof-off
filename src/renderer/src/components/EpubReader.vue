@@ -28,6 +28,8 @@ import {
 } from '../composables/epubImageVisibility.js'
 import {
   canConfirmChapterNavigationLocation,
+  findAdjacentTocNavigationTarget,
+  flattenTocNavigationTargets,
   hrefForChapterRelocation,
   isChapterNavigationSettled
 } from './epubChapterNavigationHelpers.js'
@@ -134,7 +136,6 @@ const hiddenScrollbarRule = 'none !important'
 const HIDDEN_SCROLLBAR_CLASS = 'goof-off-epub-scrollbar-hidden'
 
 let saveDebounceTimer = null
-let navigationTimeout = null
 let chapterNavigationSettleTimer = null
 let locationReportTimer = null
 let resizeDebounceTimer = null
@@ -296,7 +297,7 @@ function flushDeferredViewportResize() {
   })
 }
 
-function adjacentChapterHref(direction) {
+function adjacentSpineChapterHref(direction) {
   const location = lastKnownLocation || rendition?.location
   const section =
     getSectionForCfi(location?.start?.cfi) ||
@@ -304,6 +305,35 @@ function adjacentChapterHref(direction) {
     null
   const adjacent = direction === 'next' ? section?.next?.() : section?.prev?.()
   return adjacent?.href || ''
+}
+
+function chapterNavigationTargets() {
+  return flattenTocNavigationTargets(epub.toc.value, canonicalTocHref).filter((item) =>
+    Boolean(sectionForCanonicalHref(canonicalChapterHref(item.href)))
+  )
+}
+
+function currentChapterNavigationHref() {
+  if (ctrl.currentTocHref.value) return ctrl.currentTocHref.value
+  if (currentChapterTarget?.href) return currentChapterTarget.href
+
+  const location = lastKnownLocation || rendition?.location
+  const canonicalHref = canonicalChapterHref(location?.start?.href)
+  return currentTocItem(canonicalHref)?.href || location?.start?.href || ''
+}
+
+function adjacentChapterHref(direction) {
+  const targets = chapterNavigationTargets()
+  if (!targets.length) return adjacentSpineChapterHref(direction)
+
+  const currentHref = currentChapterNavigationHref()
+  const target = findAdjacentTocNavigationTarget(targets, currentHref, direction, canonicalTocHref)
+  if (target?.href) return target.href
+
+  const currentTargetIsKnown = targets.some(
+    (item) => canonicalTocHref(item.href) === canonicalTocHref(currentHref)
+  )
+  return currentTargetIsKnown ? '' : adjacentSpineChapterHref(direction)
 }
 
 function captureResizeViewportAnchor(container) {
@@ -717,35 +747,12 @@ function scrollUp() {
 }
 
 function navigateChapter(direction) {
-  if (!rendition) return
-  const target = beginChapterNavigation(adjacentChapterHref(direction))
-  ctrl.isNavigating.value = true
-  autoTurn.pause()
-
-  Promise.resolve(direction === 'next' ? rendition.next() : rendition.prev()).catch(() => {
-    clearPendingChapterNavigation(target)
-    clearTimeout(navigationTimeout)
-    ctrl.isNavigating.value = false
-    autoTurn.resume()
-  })
-
-  rendition.once('rendered', () => {
-    clearTimeout(navigationTimeout)
-    const el = getScrollContainer()
-    if (el) {
-      el.scrollTop = direction === 'prev' ? el.scrollHeight - el.clientHeight : 0
-      if (pendingChapterTarget === target) pendingChapterTarget = null
-      reportLocationNow()
-    }
-    ctrl.isNavigating.value = false
-    autoTurn.resume()
-  })
-
-  navigationTimeout = setTimeout(() => {
-    if (pendingChapterTarget === target) pendingChapterTarget = null
-    ctrl.isNavigating.value = false
-    autoTurn.resume()
-  }, 3000)
+  const href = adjacentChapterHref(direction)
+  if (!href) {
+    pushStatus(direction === 'next' ? '已到末尾' : '已到开头')
+    return false
+  }
+  return goToChapter(href)
 }
 
 function goToChapter(href) {
@@ -1725,7 +1732,6 @@ onUnmounted(() => {
   autoTurn.stop()
   window.removeEventListener('epub:toggle-auto-turn', handleToggleAutoTurn)
   ctrl.unregister()
-  clearTimeout(navigationTimeout)
   clearTimeout(chapterNavigationSettleTimer)
   clearTimeout(locationReportTimer)
   clearTimeout(resizeDebounceTimer)

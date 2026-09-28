@@ -115,7 +115,7 @@ Goof Off uses a frameless window on both macOS and Windows 11. Hold one of these
 
 1. Open a file or web page, click “视觉控制” (Visual Controls) in the bottom bar, and enable **背景隐去 (Hide Background)**.
 2. To make the interface less conspicuous, enable **界面淡化 (Fade UI)** and adjust its intensity. TXT and EPUB text colors and reading backgrounds can be adjusted further in Preferences.
-3. Open the “更多” (More) menu in the top bar and enable **工具栏自动隐藏 (Auto-hide Toolbars)** or **主体自动隐藏 (Auto-hide Body)** as needed. Enabling Auto-hide Body also enables Auto-hide Toolbars; you can then disable Auto-hide Toolbars independently without affecting Auto-hide Body. Enable **主体跟随鼠标 (Body Follows Pointer)** if the body and status bar should appear and disappear together as the pointer enters and leaves the window.
+3. Open the “更多” (More) menu in the top bar and independently enable **工具栏自动隐藏 (Auto-hide Toolbars)** or **主体自动隐藏 (Auto-hide Body)** as needed. Enable **主体跟随鼠标 (Body Follows Pointer)** if the body and status bar should appear and disappear together as the pointer enters and leaves the window.
 4. When the pointer leaves the window, the enabled toolbars or body content automatically disappear. While the body is hidden, macOS and Windows 11 also enable mouse click-through, so clicks go directly to the window underneath.
 
 - **Bring back the toolbars**: Move the pointer over a button area in the top or bottom bar, or near the bottom edge of the top bar or the top edge of the bottom bar, to bring back the corresponding toolbar. Blank drag regions do not trigger it. Hidden toolbars keep their original layout space, so the document does not expand into those areas.

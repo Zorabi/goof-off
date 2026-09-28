@@ -52,7 +52,20 @@ test('pointer-follow body reveal is opt-in and requires body auto-hide', () => {
   assert.equal(service.bodyFollowPointerEnabled.value, false)
 })
 
-test('click-through failure restores the body instead of leaving an input shield', async () => {
+test('enabling body auto-hide does not change the toolbar auto-hide setting', () => {
+  const { service } = createHarness()
+
+  assert.equal(service.toolbarAutoHideEnabled.value, false)
+  assert.deepEqual(service.setBodyAutoHideEnabled(true), { ok: true })
+  assert.equal(service.toolbarAutoHideEnabled.value, false)
+
+  service.setBodyAutoHideEnabled(false)
+  service.setToolbarAutoHideEnabled(true)
+  assert.deepEqual(service.setBodyAutoHideEnabled(true), { ok: true })
+  assert.equal(service.toolbarAutoHideEnabled.value, true)
+})
+
+test('click-through failure restores the body without changing toolbar auto-hide', async () => {
   const { service } = createHarness({
     api: {
       async windowSetMousePassthrough({ enabled }) {
@@ -68,7 +81,7 @@ test('click-through failure restores the body instead of leaving an input shield
   assert.equal(service.bodyHidden.value, false)
   assert.equal(service.bodyOpacityMultiplier.value, 1)
   assert.equal(service.bodyAutoHideEnabled.value, false)
-  assert.equal(service.toolbarAutoHideEnabled.value, true)
+  assert.equal(service.toolbarAutoHideEnabled.value, false)
 })
 
 test('failed input restoration keeps a marker so later activity retries', async () => {

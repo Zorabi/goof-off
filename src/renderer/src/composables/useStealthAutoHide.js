@@ -255,14 +255,17 @@ export function useStealthAutoHide({
   async function degradeBodyFade(reason = 'opacity-ipc-failed', from = 'body-fade') {
     invalidateHideAttempts()
     clearResourceOwnership()
-    toolbarAutoHideEnabled.value = true
     bodyAutoHideEnabled.value = false
     bodyFollowPointerEnabled.value = false
     bodyHidden.value = false
     bodyOpacityMultiplier.value = 1
     await restoreStealthInteraction('body-hide-degraded', { modeBefore: from })
-    showOnce('body-fade-degraded', '主体自动隐藏不可用，已恢复内容并保留工具栏自动隐藏')
-    logDiagnostic('stealth_auto_hide.degraded', { from, to: 'toolbar-only', reason }, 'warn')
+    showOnce('body-fade-degraded', '主体自动隐藏不可用，已恢复内容')
+    logDiagnostic(
+      'stealth_auto_hide.degraded',
+      { from, to: toolbarAutoHideEnabled.value ? 'toolbar-only' : 'off', reason },
+      'warn'
+    )
     return { ok: false, reason }
   }
 
@@ -470,7 +473,6 @@ export function useStealthAutoHide({
     // after the user explicitly turns body auto-hide back on.
     bodyClickThroughRuntimeDisabled.value = false
     bodyAutoHideEnabled.value = true
-    toolbarAutoHideEnabled.value = true
     invalidateHideAttempts()
     logToggle('body', true)
     return { ok: true }
