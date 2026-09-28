@@ -1685,6 +1685,7 @@ onMounted(async () => {
     deferredViewportSize = null
     ctrl.currentTocHref.value = ''
     ctrl.resetSearchAnchor()
+    ctrl.currentTocHref.value = ''
     if (rendition) {
       rendition.destroy()
       rendition = null
@@ -1761,6 +1762,7 @@ onUnmounted(() => {
   deferredViewportSize = null
   ctrl.currentTocHref.value = ''
   ctrl.resetSearchAnchor()
+  ctrl.currentTocHref.value = ''
   if (rendition) {
     rendition.destroy()
     rendition = null

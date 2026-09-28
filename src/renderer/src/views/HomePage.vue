@@ -90,7 +90,7 @@ async function openLocalFile() {
     await fileCoordinator.openAnyFileFromDialog()
   } catch (error) {
     console.error('[HomePage] file open failed:', error)
-    pushStatus(error?.message || '文件打开失败')
+    pushStatus(error?.message || '打开文件失败')
   } finally {
     openingFile.value = false
   }
@@ -215,7 +215,7 @@ async function onRemove(site) {
             data-test="open-local-file"
             class="open-local-link"
             :disabled="openingFile"
-            :aria-busy="openingFile ? 'true' : undefined"
+            :aria-busy="openingFile"
             @click="openLocalFile"
           >
             {{ openingFile ? '打开中…' : '点此打开' }}

@@ -30,12 +30,20 @@ export function createFileOpenCoordinator({
 
   function withDialogOpenLock(task) {
     if (pendingDialogOpen) return pendingDialogOpen
-    const pending = Promise.resolve().then(task)
+    // Start immediately to preserve click order with history/drop requests,
+    // while normalizing a synchronous failure into the returned promise.
+    let pending
+    try {
+      pending = Promise.resolve(task())
+    } catch (error) {
+      pending = Promise.reject(error)
+    }
     const tracked = pending.finally(() => {
       if (pendingDialogOpen === tracked) pendingDialogOpen = null
     })
-    // Menu events are fire-and-forget; avoid an unhandled rejection while
-    // preserving the rejection for callers that explicitly await the result.
+    // Menu/shortcut listeners intentionally fire and forget. Observe a rejection
+    // here so a failed native dialog does not become an unhandled rejection while
+    // callers that await the returned promise still receive the original error.
     tracked.catch(() => {})
     pendingDialogOpen = tracked
     return tracked

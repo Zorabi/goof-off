@@ -55,7 +55,7 @@ export function findActiveTocItemByViewport(items, viewportTop, resolveTop, tole
     active = item
     activeTop = top
   }
-  return active || items[0]
+  return active || items[0] || null
 }
 
 export function getParentChain(toc, targetId, chain = []) {
